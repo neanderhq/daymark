@@ -63,7 +63,7 @@ try {
   assert.equal((await db.query('SELECT count(*)::int AS count FROM poll_vote')).rows[0].count, 1);
   await exec('pnpm', ['exec', 'playwright', 'install', ...(process.platform === 'linux' ? ['--with-deps'] : []), 'chromium'], { timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
   browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, timezoneId: 'UTC' });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, timezoneId: 'UTC', extraHTTPHeaders: { origin: origin.origin } });
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   const pageErrors = [];
@@ -87,6 +87,7 @@ try {
     const response = await page.goto(`${origin.origin}/dashboard/${path}`);
     assert.equal(response.status(), 200, `${path} must render from seeded PostgreSQL data`);
   }
+  await json(await context.request.patch(`${origin.origin}/api/profile`, { headers: { origin: 'https://attacker.example' }, data: { name: 'Unwanted edit' } }), 403);
   const contacts = await json(await context.request.get(`${origin.origin}/api/contacts`));
   assert.equal(contacts.contacts.length, 3);
   assert.ok(contacts.contacts.some(contact => contact.email === 'alex.rivera@example.invalid'));
