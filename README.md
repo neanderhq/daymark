@@ -36,7 +36,7 @@ checkout; web projects use Neander’s managed project source.
 
 Stack: Next.js, React, TypeScript, PostgreSQL, Drizzle and Better Auth.
 
-Use **Node 24.21.0** and **pnpm 11.18.0**. Versions are listed in
+Use **Node 24.22.3** and **pnpm 11.18.0**. Versions are listed in
 `mise.toml`; if you use mise, run `mise install`. Install Docker for the local
 PostgreSQL service.
 
