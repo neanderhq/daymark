@@ -8,7 +8,7 @@ import { Card, EmptyState, PageHeader } from "../components/ui";
 import { getAuth } from "../../server/auth";
 import { getDb } from "../../server/db";
 import { ensureSchedulingDefaults } from "../../server/scheduling";
-import { availabilityRange, booking, eventType, poll, user } from "../../server/schema";
+import { availabilityRange, booking, bookingLink, contact, eventType, poll, user } from "../../server/schema";
 import { formatInstant } from "../../server/timezone";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +61,8 @@ export default async function DashboardPage() {
         gte(booking.endUtc, now),
       ),
     );
+  const [contactCount] = await getDb().select({ count: count(contact.id) }).from(contact).where(eq(contact.hostId, session.user.id));
+  const [linkCount] = await getDb().select({ count: count(bookingLink.id) }).from(bookingLink).where(and(eq(bookingLink.hostId, session.user.id), eq(bookingLink.status, "active")));
   const [pollCount] = await getDb()
     .select({ count: count(poll.id) })
     .from(poll)
@@ -97,8 +99,7 @@ export default async function DashboardPage() {
               <div className="card-heading"><span className="section-number">0{index + 1}</span><h2>{section.title}</h2></div>
               {section.title === "Event type" ? (
                 event ? (
-                  <div className="empty-state">
-                    <span className="empty-orbit" aria-hidden="true"><span /></span>
+                  <div className="dashboard-summary">
                     <h3>{event.name}</h3>
                     <p>{event.durationMinutes} minutes</p>
                     <p>{event.active ? "Active" : "Inactive"}</p>
@@ -108,8 +109,7 @@ export default async function DashboardPage() {
                 )
               ) : section.title === "Availability" ? (
                 ranges.length > 0 ? (
-                  <div className="empty-state">
-                    <span className="empty-orbit" aria-hidden="true"><span /></span>
+                  <div className="dashboard-summary">
                     <h3>{new Set(ranges.map((range) => range.weekday)).size} days with hours</h3>
                     <p>{ranges.map((range) => `${shortWeekdays[range.weekday]} ${formatMinute(range.startMinute)}–${formatMinute(range.endMinute)}`).join(", ")} ({hostTimezone})</p>
                   </div>
@@ -118,19 +118,17 @@ export default async function DashboardPage() {
                 )
               ) : section.title === "Bookings" ? (
                 nextBooking ? (
-                  <EmptyState
-                    title={`${bookingCount.upcoming} upcoming`}
-                    description={`Next: ${nextBooking.inviteeName}, ${formatInstant(nextBooking.startUtc, hostTimezone)}`}
-                  />
+                  <div className="dashboard-summary"><h3>{bookingCount.upcoming} upcoming</h3><p>Next: {nextBooking.inviteeName}, {formatInstant(nextBooking.startUtc, hostTimezone)}</p></div>
                 ) : (
                   <EmptyState title="No bookings yet" description="When invitees book a time, it will show up here." />
                 )
+              ) : section.title === "Contacts" ? (
+                contactCount.count > 0 ? <div className="dashboard-summary"><h3>{contactCount.count} {contactCount.count === 1 ? "contact" : "contacts"}</h3><p>People and their meeting history, in one place.</p></div> : <EmptyState title="No contacts yet" description={section.description} />
+              ) : section.title === "Links" ? (
+                linkCount.count > 0 ? <div className="dashboard-summary"><h3>{linkCount.count} active {linkCount.count === 1 ? "link" : "links"}</h3><p>Ready to share with your invitees.</p></div> : <EmptyState title="No links yet" description={section.description} />
               ) : section.title === "Polls" ? (
                 pollCount.count > 0 ? (
-                  <EmptyState
-                    title={`${pollCount.count} polls`}
-                    description={pollCount.count === 1 ? "1 poll waiting for votes." : `${pollCount.count} polls waiting for votes.`}
-                  />
+                  <div className="dashboard-summary"><h3>{pollCount.count} {pollCount.count === 1 ? "poll" : "polls"}</h3><p>Review proposed times and invitee votes.</p></div>
                 ) : (
                   <EmptyState title="Nothing here yet" description={section.description} />
                 )

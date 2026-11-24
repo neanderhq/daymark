@@ -19,6 +19,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
       startUtc: booking.startUtc,
       endUtc: booking.endUtc,
       status: booking.status,
+      rescheduleHistory: booking.rescheduleHistory,
       cancellationActor: booking.cancellationActor,
       cancellationReason: booking.cancellationReason,
       inviteeName: booking.inviteeName,
@@ -72,23 +73,29 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
   return (
     <main className="app-shell">
       <div className="dashboard-content scheduling-content">
-        <Card className="scheduling-card">
-          <h2>{isOneOffBooking ? confirmedBooking.meetingName ?? "One-off meeting" : confirmedBooking.eventName ?? "Meeting"}</h2>
-          <p>With {confirmedBooking.hostName}</p>
-          <p>Status: {statusLabel}</p>
-          <p>{formatInstant(confirmedBooking.startUtc, confirmedBooking.inviteeTimezone)}</p>
-          <p>Time zone: {confirmedBooking.inviteeTimezone}</p>
+        <Card className="scheduling-card booking-receipt">
+          <header className="receipt-heading">
+            <p className={`booking-status${confirmedBooking.status === "cancelled" ? " booking-status-cancelled" : ""}`}>Status: {statusLabel}</p>
+            <h1>{isOneOffBooking ? confirmedBooking.meetingName ?? "One-off meeting" : confirmedBooking.eventName ?? "Meeting"}</h1>
+            <p>With {confirmedBooking.hostName}</p>
+          </header>
+          <dl className="receipt-details">
+            <div><dt>When</dt><dd>{formatInstant(confirmedBooking.startUtc, confirmedBooking.inviteeTimezone)}</dd></div>
+            <div><dt>Time zone</dt><dd>{confirmedBooking.inviteeTimezone}</dd></div>
+            <div><dt>Guest</dt><dd>{confirmedBooking.inviteeName}<br />{confirmedBooking.inviteeEmail}</dd></div>
+          </dl>
+          {confirmedBooking.rescheduleHistory.length > 0 && <details className="receipt-history">
+            <summary>Previous times ({confirmedBooking.rescheduleHistory.length})</summary>
+            {confirmedBooking.rescheduleHistory.map((previous, index) => <p key={index}>{formatInstant(new Date(previous.startUtc), confirmedBooking.inviteeTimezone)}</p>)}
+          </details>}
           {isOneOffBooking && confirmedBooking.meetingDescription && <p>{confirmedBooking.meetingDescription}</p>}
           {isOneOffBooking && confirmedBooking.meetingLocation && <p>Location: {confirmedBooking.meetingLocation}</p>}
-          <p>{confirmedBooking.inviteeName}</p>
-          <p>{confirmedBooking.inviteeEmail}</p>
-
-          {confirmedBooking.status === "cancelled" && <>
+          {confirmedBooking.status === "cancelled" && <div className="receipt-cancellation">
             {confirmedBooking.cancellationActor && (
               <p>Cancelled by: {confirmedBooking.cancellationActor === "invitee" ? "You" : "Host"}</p>
             )}
             {confirmedBooking.cancellationReason && <p>Cancellation reason: {confirmedBooking.cancellationReason}</p>}
-          </>}
+          </div>}
 
           {answers.length === 0 ? (
             <p className="field-hint">No additional answers.</p>
