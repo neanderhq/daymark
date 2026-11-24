@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { availabilityDates, availabilityPayload } from '../server/calendar-availability.ts';
 import { futureWeekday, seed } from '../.neander/seed.mjs';
 
 test('seed rejects missing configuration before contacting a database', async () => {
@@ -11,4 +12,26 @@ test('seed rejects missing configuration before contacting a database', async ()
 test('sample meetings use UTC workdays across weekends and year boundaries', () => {
   assert.equal(futureWeekday(2, new Date('2026-12-31T23:59:00-08:00')).toISOString(), '2027-01-04T10:00:00.000Z');
   assert.equal(futureWeekday(2, new Date('2026-11-06T23:00:00Z')).toISOString(), '2026-11-09T10:00:00.000Z');
+});
+
+
+test('availability accepts real calendar dates and complete leap-aware months', () => {
+  const dates = availabilityDates(new URLSearchParams({ month: '2028-02' }));
+  assert.equal(dates.length, 29);
+  assert.equal(dates.at(-1), '2028-02-29');
+  assert.deepEqual(availabilityDates(new URLSearchParams({ date: '2028-02-29' })), ['2028-02-29']);
+  for (const query of [{ month: '2026-13' }, { month: '2026-00' }, { date: '2026-02-29' },
+    { month: '2026-12', date: '2026-12-01' }, {}]) {
+    assert.equal(availabilityDates(new URLSearchParams(query)), null);
+  }
+});
+
+test('month availability preserves the individual date slot results', async () => {
+  const dates = ['2026-12-14', '2026-12-15'];
+  const load = async date => date === dates[0] ? [new Date(`${date}T09:00:00Z`)] : [];
+  const month = await availabilityPayload(dates, true, load);
+  for (const date of dates) {
+    const day = await availabilityPayload([date], false, load);
+    assert.deepEqual(month.days[date], day.slots);
+  }
 });

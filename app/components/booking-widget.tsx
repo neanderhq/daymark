@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button, ErrorField, Input } from "./ui";
+import { BookingCalendar } from "./booking-calendar";
 import { formatInstant } from "../../server/timezone";
 
 type Question = {
@@ -85,11 +86,11 @@ function formatDateLabel(date: string): string {
 }
 
 function formatTime(iso: string, timezone: string): string {
-  return `${new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(iso))} (${timezone})`;
+  }).format(new Date(iso));
 }
 
 function formatDateTime(iso: string, timezone: string): string {
@@ -114,8 +115,12 @@ export function BookingWidget({
   const [timezone, setTimezone] = useState("UTC");
   const [timezoneText, setTimezoneText] = useState("");
   const [date, setDate] = useState("");
-  const [slots, setSlots] = useState<string[]>([]);
-  const [slotsKey, setSlotsKey] = useState("");
+  const [month, setMonth] = useState("");
+  const [days, setDays] = useState<Record<string, string[]>>({});
+  const [loadedKey, setLoadedKey] = useState("");
+  const detailsHeading = useRef<HTMLHeadingElement>(null);
+  const pickerHeading = useRef<HTMLHeadingElement>(null);
+  const previousSelection = useRef<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
@@ -134,20 +139,22 @@ export function BookingWidget({
     const offeredDates = bookingLink?.kind === "one_off" && offeredStarts
       ? offeredDatesInZone(offeredStarts, selectedTimezone)
       : [];
-    setDate(offeredDates[0] ?? todayInZone(selectedTimezone));
+    const initialDate = offeredDates[0] ?? todayInZone(selectedTimezone);
+    setDate(initialDate);
+    setMonth(initialDate.slice(0, 7));
     setMounted(true);
   }, [bookingLink?.kind, offeredStarts, reschedule?.timezone, timezones]);
 
   useEffect(() => {
-    if (!mounted || !date || !timezone) return;
+    if (!mounted || !month || !timezone) return;
     const controller = new AbortController();
     setLoading(true);
     setAvailabilityError("");
-    setSlots([]);
+    setDays({});
 
     async function loadSlots() {
       try {
-        const params = new URLSearchParams({ date, tz: timezone });
+        const params = new URLSearchParams({ month, tz: timezone });
         const availabilityUrl = bookingLink
           ? `/api/public/booking-links/${encodeURIComponent(bookingLink.token)}/availability?${params}`
           : (() => {
@@ -159,7 +166,7 @@ export function BookingWidget({
               return `/api/public/availability?${params}`;
             })();
         const response = await fetch(availabilityUrl, { signal: controller.signal });
-        const result = (await response.json().catch(() => ({}))) as { slots?: unknown; error?: string };
+        const result = (await response.json().catch(() => ({}))) as { days?: Record<string, string[]>; error?: string };
         if (
           bookingLink &&
           (response.status === 404 || response.status === 410) &&
@@ -168,9 +175,11 @@ export function BookingWidget({
           onBookingLinkUnavailable?.(result.error);
           return;
         }
-        if (!response.ok || !Array.isArray(result.slots)) throw new Error();
-        setSlots(result.slots.filter((slot): slot is string => typeof slot === "string"));
-        setSlotsKey(`${date}|${timezone}`);
+        if (!response.ok || !result.days) throw new Error();
+        setDays(result.days);
+        setLoadedKey(`${month}|${timezone}`);
+        const freeDays = Object.keys(result.days).filter(day => result.days![day].length > 0);
+        setDate(current => result.days![current]?.length ? current : freeDays[0] ?? `${month}-01`);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           setAvailabilityError("Times couldn’t be loaded. Please try again.");
@@ -182,24 +191,25 @@ export function BookingWidget({
 
     void loadSlots();
     return () => controller.abort();
-  }, [bookingLink?.token, date, eventSlug, mounted, onBookingLinkUnavailable, refreshKey, reschedule?.bookingId, reschedule?.token, timezone, username]);
+  }, [bookingLink?.token, month, eventSlug, mounted, onBookingLinkUnavailable, refreshKey, reschedule?.bookingId, reschedule?.token, timezone, username]);
 
   function chooseTimezone(nextTimezone: string) {
     if (reschedule) return;
     setTimezoneText(nextTimezone);
     if ((!timezones.includes(nextTimezone) && nextTimezone !== "UTC") || nextTimezone === timezone) return;
     setTimezone(nextTimezone);
+    setMonth((date || todayInZone(nextTimezone)).slice(0, 7));
     const nextToday = todayInZone(nextTimezone);
     const nextMaximumDate = bookingLink?.kind === "one_off" || horizonDays === null ? "" : addDays(nextToday, horizonDays - 1);
     if (bookingLink?.kind === "one_off" && offeredStarts) {
       const offeredDates = offeredDatesInZone(offeredStarts, nextTimezone);
-      setDate(offeredDates.includes(date) ? date : offeredDates[0] ?? nextToday);
+      chooseDate(offeredDates.includes(date) ? date : offeredDates[0] ?? nextToday);
     } else if (!date) {
-      setDate(nextToday);
+      chooseDate(nextToday);
     } else if (date < nextToday) {
-      setDate(nextToday);
+      chooseDate(nextToday);
     } else if (nextMaximumDate && date > nextMaximumDate) {
-      setDate(nextMaximumDate);
+      chooseDate(nextMaximumDate);
     }
     setSelected(null);
     setAvailabilityError("");
@@ -212,6 +222,7 @@ export function BookingWidget({
 
   function chooseDate(nextDate: string) {
     setDate(nextDate);
+    setMonth(nextDate.slice(0, 7));
     setSelected(null);
     setSubmitError("");
   }
@@ -287,13 +298,19 @@ export function BookingWidget({
   const maximumDate = bookingLink?.kind === "one_off" || horizonDays === null
     ? undefined
     : today ? addDays(today, horizonDays - 1) : "";
-  const slotsStale = slotsKey !== `${date}|${timezone}`;
-  const offeredDates = bookingLink?.kind === "one_off" && offeredStarts
-    ? offeredDatesInZone(offeredStarts, timezone)
-    : [];
-
+  const slotsStale = loadedKey !== `${month}|${timezone}`;
+  const slots = days[date] ?? [];
+  const friendlyTimezone = mounted ? new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "long" }).formatToParts(new Date()).find(part => part.type === "timeZoneName")?.value : "";
+  useEffect(() => {
+    if (selected) detailsHeading.current?.focus();
+    else if (previousSelection.current) pickerHeading.current?.focus();
+    previousSelection.current = selected;
+  }, [selected]);
   return (
-    <div>
+    <div className={`booking-widget${selected ? "" : " booking-picker"}`}>
+      <p className="booking-step">{selected ? "Step 2 of 2 · Your details" : "Step 1 of 2 · Date and time"}</p>
+      <h2 ref={pickerHeading} tabIndex={-1} className={selected ? "visually-hidden" : "booking-picker-title"}>Choose a date and time</h2>
+      {!selected && <>
       {!mounted ? (
         <p className="field-hint">Detecting your time zone…</p>
       ) : reschedule ? (
@@ -313,42 +330,13 @@ export function BookingWidget({
           <datalist id={`${idPrefix}-timezone-list`}>
             {timezones.map((item) => <option key={item} value={item} />)}
           </datalist>
-          <span className="field-hint">Times are shown in this time zone.</span>
+          <span className="field-hint">{friendlyTimezone} · All times below use this zone.</span>
         </div>
       )}
 
-      {mounted && (
-        <Input
-          id={`${idPrefix}-date`}
-          label="Choose a date"
-          type="date"
-          value={date}
-          min={today}
-          {...(maximumDate ? { max: maximumDate } : {})}
-          onChange={(event) => chooseDate(event.target.value)}
-        />
-      )}
-
-      {mounted && offeredDates.length > 0 && (
-        <div className="field">
-          <span className="field-label" id={`${idPrefix}-offered-dates-label`}>Proposed dates</span>
-          <div className="times-grid" role="group" aria-labelledby={`${idPrefix}-offered-dates-label`}>
-            {offeredDates.map((offeredDate) => (
-              <Button
-                key={offeredDate}
-                type="button"
-                variant="secondary"
-                className="time-button"
-                aria-pressed={date === offeredDate}
-                onClick={() => chooseDate(offeredDate)}
-              >
-                {formatDateLabel(offeredDate)}
-              </Button>
-            ))}
-          </div>
-          <span className="field-hint">Times are checked for availability when you choose a date.</span>
-        </div>
-      )}
+      {mounted && <BookingCalendar month={month} date={date} availableDates={Object.keys(days).filter(day => days[day].length > 0)}
+        loading={loading || slotsStale} min={today} max={maximumDate}
+        onMonth={value => { setMonth(value); setSelected(null); }} onDate={chooseDate} />}
 
       {availabilityError && !loading && (
         <>
@@ -377,6 +365,7 @@ export function BookingWidget({
                   key={slot}
                   type="button"
                   className="button button-secondary time-button"
+                  aria-label={`Choose ${formatTime(slot, timezone)}`}
                   onClick={() => {
                     setSelected(slot);
                     setSubmitError("");
@@ -392,9 +381,11 @@ export function BookingWidget({
         </div>
       )}
 
+      </>}
       {!selected && submitError && <ErrorField>{submitError}</ErrorField>}
       {selected && (
-        <form className="booking-form" onSubmit={submitBooking}>
+        <form className="booking-form booking-details-form" onSubmit={submitBooking}>
+          <h2 ref={detailsHeading} tabIndex={-1}>{reschedule ? "Confirm your new time" : "Your details"}</h2>
           <p className="booking-summary">
             {formatDateTime(selected, timezone)} · {durationMinutes} minutes
           </p>

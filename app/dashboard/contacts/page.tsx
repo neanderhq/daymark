@@ -36,7 +36,7 @@ export default async function ContactsPage() {
           <SignOutButton />
         </nav>
       </header>
-      <div className="dashboard-content scheduling-content">
+      <div className="dashboard-content scheduling-content contacts-content">
         <PageHeader eyebrow="Your workspace" title="Contacts" description="Keep contact details and booking history together." />
         <ContactsManager
           timezone={hostTimezone}

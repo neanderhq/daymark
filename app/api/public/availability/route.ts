@@ -1,26 +1,12 @@
 import { and, eq, gt } from "drizzle-orm";
 
+import { availabilityDates, availabilityPayload } from "../../../../server/calendar-availability";
 import { getAuth } from "../../../../server/auth";
 import { getDb } from "../../../../server/db";
 import { invalidSlugMessage, invalidTimezoneMessage, normalizeSlug } from "../../../../server/profile-validation";
 import { getAvailableSlots } from "../../../../server/slots";
 import { booking, eventType, user } from "../../../../server/schema";
 import { isIanaTimezone } from "../../../../server/timezone";
-
-function isCalendarDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return (
-    parsed.getUTCFullYear() === year &&
-    parsed.getUTCMonth() === month - 1 &&
-    parsed.getUTCDate() === day
-  );
-}
 
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
@@ -30,8 +16,8 @@ export async function GET(request: Request) {
     return Response.json({ error: invalidSlugMessage }, { status: 400 });
   }
 
-  const date = query.get("date") ?? "";
-  if (!isCalendarDate(date)) return Response.json({ error: "Choose a date." }, { status: 400 });
+  const dates = availabilityDates(query);
+  if (!dates) return Response.json({ error: "Choose a date." }, { status: 400 });
 
   const timezone = query.get("tz");
   if (!isIanaTimezone(timezone)) {
@@ -88,7 +74,7 @@ export async function GET(request: Request) {
     isPollReschedule = reschedulingBooking.pollId !== null;
   }
 
-  const slots = await getAvailableSlots({
+  const payload = await availabilityPayload(dates, query.has("month"), date => getAvailableSlots({
     hostId: event.hostId,
     hostTimezone: event.hostTimezone,
     durationMinutes: event.durationMinutes,
@@ -96,6 +82,6 @@ export async function GET(request: Request) {
     timezone,
     excludeBookingId,
     applySchedulingLimits: !isPollReschedule,
-  });
-  return Response.json({ slots: slots.map((slot) => slot.toISOString()) });
+  }));
+  return Response.json(payload);
 }

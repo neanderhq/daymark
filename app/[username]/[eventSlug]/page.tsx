@@ -38,7 +38,7 @@ export default async function PublicEventPage({ params }: { params: Promise<{ us
   if (!event || !event.active) {
     return (
       <main className="app-shell">
-        <div className="dashboard-content scheduling-content">
+        <div className="dashboard-content scheduling-content public-booking-content">
           <PageHeader
             eyebrow="Booking"
             title="This booking page isn’t available"
@@ -57,7 +57,7 @@ export default async function PublicEventPage({ params }: { params: Promise<{ us
 
   return (
     <main className="app-shell">
-      <div className="dashboard-content scheduling-content">
+      <div className="dashboard-content scheduling-content public-booking-content">
         <PageHeader eyebrow="Booking" title={event.name} description={`With ${event.hostName}`} />
         <div className="booking-page-grid">
           <Card className="scheduling-card booking-details">

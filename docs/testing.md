@@ -18,7 +18,21 @@ TypeScript is the existing static gate; this migration does not introduce a new 
 
 ## Production smoke coverage
 
-Host login, scheduling pages, public bookings/conflicts, seed retries, preserved edits/deletions/passwords and restart persistence.
+Host login, scheduling pages, public bookings/conflicts, seed retries, preserved
+edits/deletions/passwords and restart persistence.
+
+The same built-image suite also runs `scripts/test-scorecard-browser.mjs` against
+its local server and disposable PostgreSQL database. It creates a fictional host,
+then checks event editing; hours, overrides, buffers, notice, horizon and meeting
+limits; UTC/Kolkata/New York displays; booking conflicts; host/invitee rescheduling
+and cancellation; poll voting/finalization; one-off link consumption; and truthful
+Contacts summaries. It completes real bookings at a measured 375px viewport and
+with only the keyboard, including required-field/email validation and focus.
+The test deletes its own host after the run. No reference-account actions occur.
+
+Screenshots and a per-check JSON report are written to `.cache/scorecard/` (ignored),
+or `DAYMARK_SCORECARD_EVIDENCE` when set. Those are evidence for the checked states,
+not a claim of complete Calendly feature parity or physical-device coverage.
 
 CI supplies only fictional credentials and an isolated local PostgreSQL service.
 `DATABASE_URL` and `NEANDER_TEMPLATE_TEST_DATABASE_URL` must identify the same

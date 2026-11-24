@@ -117,6 +117,8 @@ try {
   await db.query('DELETE FROM booking WHERE host_id=$1 AND invitee_email=$2', [DEMO_HOST_ID, booking.email]);
   await db.query('DELETE FROM contact WHERE host_id=$1 AND email=$2', [DEMO_HOST_ID, booking.email]);
   await db.query('INSERT INTO contact (id,host_id,name,email,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6)', [removed.id, removed.host_id, removed.name, removed.email, removed.created_at, removed.updated_at]);
+  const acceptance = await exec(process.execPath, ['scripts/test-scorecard-browser.mjs'], { timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
+  console.log(acceptance.stdout);
   console.log('Built-image verification passed: browser login, seeded dashboard/routes, public booking/conflict, auth validation, concurrent seed retries, preserved edits/deletions/password, and persistence after restart.');
 } catch (error) {
   const logs = await exec('docker', ['logs', '--tail', '100', name]).catch(() => ({ stdout: '', stderr: '' }));
