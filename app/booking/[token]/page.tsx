@@ -2,12 +2,22 @@ import { asc, eq } from "drizzle-orm";
 
 import { BookingConfirmationActions } from "../../components/booking-confirmation-actions";
 import { Card, PageHeader } from "../../components/ui";
+import { bookingEmailStatus } from "../../../server/booking-email";
 import { getDb } from "../../../server/db";
-import { booking, bookingAnswer, bookingLink, eventType, user } from "../../../server/schema";
+import { booking, bookingAnswer, bookingLink, eventType, poll, user } from "../../../server/schema";
 import { getAvailabilityRules } from "../../../server/slots";
 import { formatInstant } from "../../../server/timezone";
 
 export const dynamic = "force-dynamic";
+export const metadata = { referrer: "no-referrer", robots: { index: false, follow: false } };
+
+const deliveryLabels = {
+  pending: "Email is queued. Keep this page for your booking details.",
+  accepted: "The email service accepted the latest booking message.",
+  failed: "The latest booking email could not be sent. Keep this page for your details.",
+  unconfigured: "Email is not configured. Save this page for your booking details.",
+  superseded: "Save this page for the latest booking details.",
+};
 
 export default async function BookingConfirmationPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -16,6 +26,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
       id: booking.id,
       hostId: booking.hostId,
       pollId: booking.pollId,
+      pollTitle: poll.title,
       startUtc: booking.startUtc,
       endUtc: booking.endUtc,
       status: booking.status,
@@ -39,6 +50,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
     .from(booking)
     .leftJoin(eventType, eq(booking.eventTypeId, eventType.id))
     .innerJoin(user, eq(booking.hostId, user.id))
+    .leftJoin(poll, eq(booking.pollId, poll.id))
     .leftJoin(bookingLink, eq(booking.bookingLinkId, bookingLink.id))
     .where(eq(booking.confirmationToken, token))
     .limit(1);
@@ -65,7 +77,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
     .from(bookingAnswer)
     .where(eq(bookingAnswer.bookingId, confirmedBooking.id))
     .orderBy(asc(bookingAnswer.position));
-  const rules = await getAvailabilityRules(confirmedBooking.hostId);
+  const [rules, delivery] = await Promise.all([getAvailabilityRules(confirmedBooking.hostId), bookingEmailStatus(confirmedBooking.id)]);
   const hasStarted = confirmedBooking.startUtc.getTime() <= Date.now();
   const isOneOffBooking = confirmedBooking.bookingLinkKind === "one_off";
   const statusLabel = confirmedBooking.status === "cancelled" ? "Cancelled" : hasStarted ? "Started" : "Confirmed";
@@ -76,7 +88,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
         <Card className="scheduling-card booking-receipt">
           <header className="receipt-heading">
             <p className={`booking-status${confirmedBooking.status === "cancelled" ? " booking-status-cancelled" : ""}`}>Status: {statusLabel}</p>
-            <h1>{isOneOffBooking ? confirmedBooking.meetingName ?? "One-off meeting" : confirmedBooking.eventName ?? "Meeting"}</h1>
+            <h1>{isOneOffBooking ? confirmedBooking.meetingName ?? "One-off meeting" : confirmedBooking.pollTitle ?? confirmedBooking.eventName ?? "Meeting"}</h1>
             <p>With {confirmedBooking.hostName}</p>
           </header>
           <dl className="receipt-details">
@@ -110,7 +122,10 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
             </div>
           )}
 
-          <p className="notice-banner">No email is sent. Save this page link to keep your booking details.</p>
+          <p className="notice-banner">{delivery ? deliveryLabels[delivery] : "Save this page link to keep your booking details."}</p>
+          {confirmedBooking.status === "active" && (
+            <p><a className="text-link" href={`/api/public/bookings/${token}/calendar`} download>Download calendar file</a></p>
+          )}
 
           {confirmedBooking.status === "active" && !hasStarted && (isOneOffBooking || confirmedBooking.username) && (
             <BookingConfirmationActions

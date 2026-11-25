@@ -332,3 +332,10 @@ button:disabled { cursor: wait; opacity: .68; }
 .booking-page-option span {
   font-size: 0.875rem;
 }
+
+.integration-settings {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: start;
+}
+.integration-settings h2, .integration-settings p { margin: 0; }

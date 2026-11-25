@@ -335,3 +335,24 @@ export const bookingAttendee = pgTable(
     index("booking_attendee_bookingId_idx").on(table.bookingId),
   ],
 );
+
+export type BookingEmailKind = "confirmed" | "rescheduled" | "cancelled";
+export type BookingEmailStatus = "pending" | "accepted" | "failed" | "unconfigured" | "superseded";
+
+export const bookingEmail = pgTable(
+  "booking_email",
+  {
+    id: text("id").primaryKey(),
+    bookingId: text("booking_id").notNull().references(() => booking.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    kind: text("kind").$type<BookingEmailKind>().notNull(),
+    status: text("status").$type<BookingEmailStatus>().notNull(),
+    sender: text("sender"),
+    recipient: text("recipient").notNull(),
+    subject: text("subject").notNull(),
+    message: text("message").notNull(),
+    firstAttemptAt: timestamp("first_attempt_at"),
+    nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("booking_email_revision_idx").on(table.bookingId, table.revision)],
+);
