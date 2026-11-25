@@ -39,7 +39,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
     "auth": "1.7.21",
-    "drizzle-kit": "0.31.10",
+    "drizzle-kit": "0.31.11",
     "typescript": "7.0.2"
   },
   "license": "MIT"
