@@ -1,12 +1,32 @@
 contract_version: 1
 id: calendly
 title: Daymark
-description: A working scheduling app with public booking pages, availability, meeting polls and contacts.
+description: >-
+  Share reusable booking pages, one-off links and meeting polls with your
+  availability. Invitees can download a calendar file. Optionally send booking
+  emails through Resend and check for conflicts on your primary Google Calendar.
 category: Scheduling
 best_for: Consultants and teams coordinating meetings
-features: [Booking pages, Availability, Meeting polls, Contacts, One-off links]
-included: [Scheduling application, PostgreSQL migrations, Fictional sample data]
+features:
+  - Multiple reusable booking pages
+  - Availability and booking rules
+  - Meeting polls
+  - One-off booking links
+  - Contacts
+  - Calendar file downloads
+  - Optional booking emails via Resend
+  - Optional read-only Google Calendar conflict checks
+included:
+  - Daymark scheduling application
+  - PostgreSQL migrations
+  - Fictional sample data
+  - Resend and Google Calendar setup guide
 thumbnail: .neander/thumbnail.png
+screenshots:
+  - .neander/gallery/reusable-booking-pages.png
+  - .neander/gallery/booking-email-and-calendar-download.png
+  - .neander/gallery/google-calendar-conflict-settings.png
+  - .neander/gallery/calendar-download-on-phone.png
 commands:
   install: [pnpm, install, --frozen-lockfile]
   check: [pnpm, run, check]
