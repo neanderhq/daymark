@@ -190,6 +190,10 @@ try {
   other = (await ownerSession('other')).context;
   visitor = await request.newContext({ baseURL: origin.origin });
   await data(await owner.patch('/api/event-type', { data: { ...defaultEvent, username } }));
+  await data(await owner.put('/api/availability/rules', { data: {
+    bufferBeforeMinutes: 0, bufferAfterMinutes: 0, minimumNoticeHours: 0, bookingHorizonDays: 60,
+    startTimeIncrementMinutes: 15, dailyMeetingLimit: null, weeklyMeetingLimit: null, monthlyMeetingLimit: null,
+  } }));
   const long = await data(await owner.post('/api/event-type', { data: longEvent }), 201);
   const hostPhone = await browser.newContext({ storageState: await owner.storageState(), viewport: { width: 375, height: 900 },
     timezoneId: 'UTC', permissions: ['clipboard-read', 'clipboard-write'] });
@@ -239,6 +243,7 @@ try {
     await fit(editor, 'booking page editor');
     await guest.goto(url);
     const day = await dates(guest);
+    await expect(day).toBeEnabled();
     await tabTo(guest, day);
     await guest.keyboard.press('Enter');
     const slot = guest.getByRole('button', { name: 'Choose 10:00 AM', exact: true });
@@ -250,7 +255,7 @@ try {
     const guestEmail = guest.getByLabel('Email', { exact: true });
     await tabTo(guest, guestEmail);
     await guest.keyboard.type(email('phone'));
-    await tabTo(guest, guest.getByRole('button', { name: 'Confirm booking' }));
+    await tabTo(guest, guest.getByRole('button', { name: 'Book meeting' }));
     await guest.keyboard.press('Enter');
     await expect(guest.getByText('Status: Confirmed')).toBeVisible();
     await fit(guest, 'secondary booking receipt');
@@ -290,7 +295,9 @@ try {
   const delivery = async () => (await db.query('SELECT * FROM booking_email WHERE booking_id=$1 ORDER BY revision', [emailed.id])).rows;
   await check('booking-emails-calendar-download', async () => {
     provider.state.mail = 'ambiguous';
-    emailed = await data(await book(defaultEvent.slug, at(1, 9), 'mail'), 201);
+    emailed = await data(await visitor.post('/api/public/bookings', {
+      data: { ...input(defaultEvent.slug, at(1, 9), 'mail'), timezone: 'America/New_York' },
+    }), 201);
     provider.state.mail = 'ok';
     assert.equal((await delivery())[0].status, 'pending');
     const receipt = `${origin.origin}/booking/${emailed.confirmationToken}`;
@@ -315,7 +322,7 @@ try {
     const records = provider.state.attempts.filter(({ payload }) => payload.to[0] === email('mail'));
     assert.equal(records.length, 2);
     assert.equal(records[0].key, records[1].key);
-    assert.match(records[0].payload.text, /UTC/);
+    assert.match(records[0].payload.text, /4:00 AM.*America\/New_York/);
     assert.ok(records[0].payload.text.includes(receipt));
     assert.equal([...provider.state.deliveries.values()].filter(({ payload }) => payload.to[0] === email('mail')).length, 1);
     await data(await visitor.post(`/api/public/bookings/${emailed.confirmationToken}/reschedule`, { data: { startUtc: at(1, 10) } }));
@@ -428,10 +435,13 @@ try {
     await guest.keyboard.press('Enter');
     await expect(retry).toHaveCount(0);
 
+    await db.query("UPDATE google_calendar_connection SET access_expires_at=NOW()-interval '5 minutes' WHERE host_id=$1", [host.id]);
+    assert.equal((await availability(defaultEvent.slug)).status(), 200);
+    assert.equal(provider.state.refreshed, 1);
     provider.state.revoked = true;
     await db.query("UPDATE google_calendar_connection SET access_expires_at=NOW()-interval '5 minutes' WHERE host_id=$1", [host.id]);
     assert.equal((await availability(defaultEvent.slug)).status(), 503);
-    assert.equal(provider.state.refreshed, 1);
+    assert.equal(provider.state.refreshed, 2);
     await editor.goto(`${origin.origin}/settings`);
     await expect(editor.getByText(/Reconnect Google Calendar before new bookings/i)).toBeVisible();
     const reconnect = editor.getByRole('button', { name: 'Reconnect Google Calendar' });

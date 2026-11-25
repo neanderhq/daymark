@@ -24,7 +24,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     .limit(1);
   if (!profile) redirect("/login");
   const emailConfigured = bookingEmailConfigured();
-  const pending = emailConfigured ? (await pendingBookingEmails(session.user.id)).length : 0;
+  const pending = emailConfigured ? await pendingBookingEmails(session.user.id) : 0;
   const calendar = await googleCalendarStatus(session.user.id);
   const { calendar: result } = await searchParams;
 

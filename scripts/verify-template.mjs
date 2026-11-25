@@ -87,6 +87,11 @@ try {
     const response = await page.goto(`${origin.origin}/dashboard/${path}`);
     assert.equal(response.status(), 200, `${path} must render from seeded PostgreSQL data`);
   }
+  await page.goto(`${origin.origin}/settings`);
+  await expect(page.getByText(/Email is not configured for this workspace/)).toBeVisible();
+  await expect(page.getByText(/Google Calendar is not configured for this workspace/)).toBeVisible();
+  await json(await context.request.post(`${origin.origin}/api/settings/google-calendar`), 409);
+  await json(await context.request.post(`${origin.origin}/api/settings/booking-emails`), 409);
   await json(await context.request.patch(`${origin.origin}/api/profile`, { headers: { origin: 'https://attacker.example' }, data: { name: 'Unwanted edit' } }), 403);
   const contacts = await json(await context.request.get(`${origin.origin}/api/contacts`));
   assert.equal(contacts.contacts.length, 3);

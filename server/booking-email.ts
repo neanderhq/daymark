@@ -1,4 +1,4 @@
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, lte, sql } from "drizzle-orm";
 
 import { getDb, type DbTransaction } from "./db";
 import { providerEndpoint } from "./provider-endpoints";
@@ -36,8 +36,8 @@ export async function queueBookingEmail(transaction: DbTransaction, bookingId: s
     subject: `${sendLabels[kind]}: ${title.replace(/[\r\n]+/g, " ")}`,
     message: [
       `${sendLabels[kind]}. ${title}`,
-      `Starts: ${formatInstant(record.start, record.timezone)} (${record.timezone})`,
-      `Ends: ${formatInstant(record.end, record.timezone)} (${record.timezone})`,
+      `Starts: ${formatInstant(record.start, record.timezone)}`,
+      `Ends: ${formatInstant(record.end, record.timezone)}`,
       receipt ? `Open your current booking receipt: ${receipt}` : "",
     ].join("\n"),
   });
@@ -83,8 +83,9 @@ export async function bookingEmailStatus(bookingId: string) {
 }
 
 export async function pendingBookingEmails(hostId: string) {
-  return getDb().select({ id: bookingEmail.id }).from(bookingEmail).innerJoin(booking, eq(bookingEmail.bookingId, booking.id))
+  const [row] = await getDb().select({ pending: count() }).from(bookingEmail).innerJoin(booking, eq(bookingEmail.bookingId, booking.id))
     .where(and(eq(booking.hostId, hostId), eq(bookingEmail.status, "pending")));
+  return row.pending;
 }
 
 export async function retryBookingEmails(hostId: string) {
