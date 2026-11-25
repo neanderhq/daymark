@@ -14,7 +14,7 @@ type Connection = typeof googleCalendarConnection.$inferSelect;
 type Tokens = { access_token: string; expires_in: number; refresh_token?: string; scope?: string };
 
 export class CalendarUnavailableError extends Error {
-  constructor(public reconnect = false, public connection?: Pick<Connection, "hostId" | "id" | "accessExpiresAt">) {
+  constructor(public reconnect = false, public connection?: Pick<Connection, "hostId" | "id" | "accessCipher">) {
     super(publicError);
   }
 }
@@ -180,7 +180,7 @@ export async function recordCalendarFailure(error: unknown) {
   if (!(error instanceof CalendarUnavailableError) || !error.reconnect || !error.connection) return;
   await getDb().update(googleCalendarConnection).set({ needsReconnect: true }).where(and(
     eq(googleCalendarConnection.hostId, error.connection.hostId), eq(googleCalendarConnection.id, error.connection.id),
-    eq(googleCalendarConnection.accessExpiresAt, error.connection.accessExpiresAt),
+    eq(googleCalendarConnection.accessCipher, error.connection.accessCipher),
   ));
 }
 

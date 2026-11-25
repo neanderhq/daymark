@@ -436,6 +436,7 @@ try {
     provider.state.calendar = 'outage';
     await guest.goto(`${origin.origin}/${username}/${defaultEvent.slug}`);
     await expect(guest.getByText(/host’s calendar is temporarily unavailable/i)).toBeVisible();
+    await expect(guest.getByText(/No available days this month/)).toHaveCount(0);
     assert.equal((await book(defaultEvent.slug, at(2, 15), 'outage')).status(), 503);
     await fit(guest, 'calendar service outage');
     await capture(guest, 'calendar-outage-phone');

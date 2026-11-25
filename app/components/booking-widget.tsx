@@ -338,7 +338,7 @@ export function BookingWidget({
         </div>
       )}
 
-      {mounted && <BookingCalendar month={month} date={date} availableDates={Object.keys(days).filter(day => days[day].length > 0)}
+      {mounted && !availabilityError && <BookingCalendar month={month} date={date} availableDates={Object.keys(days).filter(day => days[day].length > 0)}
         loading={loading || slotsStale} min={today} max={maximumDate}
         onMonth={value => { setMonth(value); setSelected(null); }} onDate={chooseDate} />}
 

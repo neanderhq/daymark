@@ -106,7 +106,7 @@ Configure integrations in the app's server environment. Leave the corresponding 
 | `DAYMARK_RESEND_API_KEY`, `DAYMARK_EMAIL_FROM` | A Resend sending key and verified sender address. The configured instance sends the booking's primary invitee a confirmation or change message. Each booking still has a private web receipt. |
 | `DAYMARK_GOOGLE_CLIENT_ID`, `DAYMARK_GOOGLE_CLIENT_SECRET` | A Google OAuth web client with Calendar API enabled. Register the exact `BETTER_AUTH_URL` origin plus `/api/settings/google-calendar/callback` as an authorized redirect URI. |
 
-Hosts connect their own primary calendar in Settings. Daymark requests only Calendar free/busy scope, stores credentials encrypted with the application's server secret, and rechecks before committing a booking or reschedule. A connected calendar that cannot be checked temporarily blocks new confirmations. Hosts can reconnect or disconnect to return to manual scheduling.
+Hosts connect their own primary calendar in Settings. Daymark requests only Calendar free/busy scope, stores credentials encrypted with the application's server secret, and rechecks before committing a booking or reschedule. A connected calendar that cannot be checked temporarily blocks new confirmations. Hosts can reconnect to restore calendar checks or disconnect to return to manual scheduling.
 
 Email delivery attempts follow the booking commit. A host can retry eligible pending messages in Settings within the provider's idempotency window. The receipt reports provider acceptance separately from booking status. Calendar files are importable snapshots and future changes are reflected on the current web receipt.
 

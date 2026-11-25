@@ -39,7 +39,7 @@ export function GoogleCalendarSettings({ configured, connected, reconnect, resul
     <section className="integration-settings" id="google-calendar">
       <h2>Google Calendar</h2>
       <p>{status}</p>
-      <p className="field-hint">Daymark checks busy times on your primary calendar using read-only access.</p>
+      <p className="field-hint">When connected, Daymark checks busy times on your primary calendar using read-only access.</p>
       {result && Object.hasOwn(messages, result) && <p role="status">{messages[result]}</p>}
       {error && <ErrorField>{error}</ErrorField>}
       {configured && <form action="/api/settings/google-calendar" method="post">
