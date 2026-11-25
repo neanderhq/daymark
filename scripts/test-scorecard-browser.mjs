@@ -56,6 +56,9 @@ const saveRules = async changes => json(await owner.put('/api/availability/rules
 const slots = async (d = date, tz = 'UTC', extra = {}) => (await json(await anonymous.get('/api/public/availability', {
   params: { username, eventSlug: 'discovery-call', date: d, tz, ...extra },
 }))).slots;
+const slotLabel = (start, timeZone) => new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric', minute: '2-digit', timeZone,
+}).format(new Date(start));
 const bookingInput = (start, name = 'Alex Morgan', timezone = 'UTC') => ({ username, eventSlug: 'discovery-call', startUtc: start,
   timezone, name, email: `${name.toLowerCase().replaceAll(' ', '-')}-${suffix}@example.invalid`, answers: [] });
 const book = async (start, name, timezone) => json(await anonymous.post('/api/public/bookings', { data: bookingInput(start, name, timezone) }), 201);
@@ -126,13 +129,16 @@ try {
     const expected = await slots();
     for (const tz of ['UTC', 'Asia/Kolkata', 'America/New_York']) {
       assert.deepEqual(await slots(date, tz), expected);
+      const month = await json(await anonymous.get('/api/public/availability', {
+        params: { username, eventSlug: 'discovery-call', month: date.slice(0, 7), tz },
+      }));
+      assert.deepEqual(month.days[date], expected, `Month availability must preserve the slots in ${tz}`);
       await invitee.goto(origin + publicPath);
       await expect(invitee.getByLabel('Time zone', { exact: true })).toBeVisible();
       await invitee.getByLabel('Time zone', { exact: true }).fill(tz);
       await invitee.getByLabel('Time zone', { exact: true }).press('Tab');
       await chooseDate(invitee);
-      const text = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(new Date(dateAt(0)));
-      await expect(invitee.getByRole('button', { name: `Choose ${text}`, exact: true })).toBeVisible();
+      await expect(invitee.getByRole('button', { name: `Choose ${slotLabel(dateAt(0), tz)}`, exact: true })).toBeVisible();
     }
     booking = await book(dateAt(0), 'Timezone guest', 'America/New_York');
     const row = (await db.query('SELECT invitee_timezone,start_utc::text FROM booking WHERE id=$1', [booking.id])).rows[0];
@@ -156,7 +162,7 @@ try {
     await invitee.getByRole('button', { name: 'Reschedule', exact: true }).click();
     await chooseDate(invitee);
     await capture(invitee, 'reschedule');
-    await invitee.getByRole('button', { name: 'Choose 7:00 AM', exact: true }).click(); // 12:00 UTC in New York.
+    await invitee.getByRole('button', { name: `Choose ${slotLabel(dateAt(0, 12), 'America/New_York')}`, exact: true }).click();
     await invitee.getByRole('button', { name: 'Confirm new time', exact: true }).click();
     await expect(invitee.getByRole('button', { name: 'Reschedule', exact: true })).toBeVisible();
     assert.ok((await slots()).includes(dateAt(0, 11))); assert.ok(!(await slots()).includes(dateAt(0, 12)));
@@ -274,8 +280,11 @@ try {
       throw new Error('Keyboard target could not be reached');
     }
     await tabTo(() => document.activeElement?.hasAttribute('data-calendar-date'));
+    await expect(invitee.locator('[data-calendar-date]:focus-visible')).toHaveCSS('outline-style', 'solid');
+    await capture(invitee, 'keyboard-date');
     await invitee.keyboard.press('ArrowRight'); await invitee.keyboard.press('Enter');
     await tabTo(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Choose '));
+    await expect(invitee.locator('.time-button:focus-visible')).toHaveCSS('outline-style', 'solid');
     await invitee.keyboard.press('Enter');
     await expect(invitee.getByRole('heading', { name: 'Your details', exact: true })).toBeFocused();
     await invitee.keyboard.press('Tab'); await expect(invitee.getByLabel('Your name', { exact: true })).toBeFocused();
