@@ -39,7 +39,7 @@ export default async function DashboardPage() {
   const [event] = await getDb()
     .select({ name: eventType.name, durationMinutes: eventType.durationMinutes, active: eventType.active })
     .from(eventType)
-    .where(eq(eventType.userId, session.user.id))
+    .where(and(eq(eventType.userId, session.user.id), eq(eventType.isDefault, true)))
     .limit(1);
   const ranges = await getDb()
     .select({ weekday: availabilityRange.weekday, startMinute: availabilityRange.startMinute, endMinute: availabilityRange.endMinute })

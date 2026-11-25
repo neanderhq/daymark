@@ -4,7 +4,7 @@ import { bookingActionErrorResponse } from "../../../../bookings/action-utils";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
-const confirmationTokenPattern = /^[A-Za-z0-9_-]{32}$/;
+const confirmationTokenPattern = /^(?:[A-Za-z0-9_-]{32}|[a-f0-9]{48})$/;
 
 export async function POST(request: Request, context: RouteContext) {
   const { token } = await context.params;

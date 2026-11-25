@@ -20,6 +20,7 @@ export const eventType = pgTable(
     location: text("location"),
     slug: text("slug").notNull(),
     active: boolean("active").default(true).notNull(),
+    isDefault: boolean("is_default").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -27,7 +28,7 @@ export const eventType = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("event_type_userId_unique").on(table.userId),
+    uniqueIndex("event_type_default_owner_idx").on(table.userId).where(sql`${table.isDefault}`),
     uniqueIndex("event_type_userId_slug_unique").on(table.userId, table.slug),
   ],
 );

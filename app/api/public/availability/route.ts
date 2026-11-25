@@ -27,18 +27,20 @@ export async function GET(request: Request) {
   const [event] = await getDb()
     .select({
       id: eventType.id,
+      active: eventType.active,
       durationMinutes: eventType.durationMinutes,
       hostId: user.id,
       hostTimezone: user.timezone,
     })
     .from(eventType)
     .innerJoin(user, eq(eventType.userId, user.id))
-    .where(and(eq(user.username, username), eq(eventType.slug, eventSlug), eq(eventType.active, true)))
+    .where(and(eq(user.username, username), eq(eventType.slug, eventSlug)))
     .limit(1);
   if (!event) return Response.json({ error: "This booking page isn’t available." }, { status: 404 });
 
   const rescheduleBookingId = query.get("rescheduleBookingId");
   const rescheduleToken = query.get("rescheduleToken");
+  let durationMinutes = event.durationMinutes;
   let isPollReschedule = false;
   let excludeBookingId: string | undefined;
   if (rescheduleBookingId || rescheduleToken) {
@@ -57,6 +59,7 @@ export async function GET(request: Request) {
         pollId: booking.pollId,
         status: booking.status,
         startUtc: booking.startUtc,
+        endUtc: booking.endUtc,
       })
       .from(booking)
       .where(and(selector, eq(booking.status, "active"), gt(booking.startUtc, currentTime)))
@@ -70,14 +73,17 @@ export async function GET(request: Request) {
         return Response.json({ error: "This booking is no longer available to change." }, { status: 404 });
       }
     }
+    durationMinutes = (reschedulingBooking.endUtc.getTime() - reschedulingBooking.startUtc.getTime()) / 60_000;
     excludeBookingId = reschedulingBooking.id;
     isPollReschedule = reschedulingBooking.pollId !== null;
+  } else if (!event.active) {
+    return Response.json({ error: "This booking page isn’t available." }, { status: 404 });
   }
 
   const payload = await availabilityPayload(dates, query.has("month"), date => getAvailableSlots({
     hostId: event.hostId,
     hostTimezone: event.hostTimezone,
-    durationMinutes: event.durationMinutes,
+    durationMinutes,
     date,
     timezone,
     excludeBookingId,

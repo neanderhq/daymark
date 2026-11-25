@@ -117,7 +117,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
               token={token}
               username={isOneOffBooking ? null : confirmedBooking.username}
               eventSlug={confirmedBooking.eventSlug ?? ""}
-              durationMinutes={confirmedBooking.meetingDurationMinutes ?? confirmedBooking.durationMinutes ?? Math.round((confirmedBooking.endUtc.getTime() - confirmedBooking.startUtc.getTime()) / 60000)}
+              durationMinutes={Math.round((confirmedBooking.endUtc.getTime() - confirmedBooking.startUtc.getTime()) / 60000)}
               timezone={confirmedBooking.inviteeTimezone}
               timezones={Intl.supportedValuesOf("timeZone")}
               horizonDays={confirmedBooking.pollId ? null : rules.bookingHorizonDays}

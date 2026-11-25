@@ -214,6 +214,7 @@ export async function createBooking(input: {
 
   try {
     return await getDb().transaction(async (transaction) => {
+      await lockBookingHost(transaction, input.hostId);
       let resolvedEventTypeId = input.eventTypeId ?? null;
       let meetingDuration: number;
       let link: typeof bookingLink.$inferSelect | null = null;
@@ -238,7 +239,6 @@ export async function createBooking(input: {
           meetingDuration = lockedEvent.durationMinutes;
         } else {
           if (!lockedLink.durationMinutes || !lockedLink.proposedStarts) throw new BookingLinkUnavailableError();
-          await lockHostEventForBooking(transaction, input.hostId);
           if (!lockedLink.proposedStarts.some((start) => start.getTime() === input.startUtc.getTime())) {
             throw new StaleBookingDetailsError();
           }
@@ -248,7 +248,7 @@ export async function createBooking(input: {
       } else {
         if (!resolvedEventTypeId) throw new Error(invalidBookingDetailsMessage);
         const lockedEvent = await lockEventForBooking(transaction, input.hostId, resolvedEventTypeId);
-        if (!lockedEvent.active) throw new StaleBookingDetailsError();
+        if (!lockedEvent.active && !input.pollId) throw new StaleBookingDetailsError();
         meetingDuration = input.durationMinutes ?? lockedEvent.durationMinutes;
       }
 
@@ -436,11 +436,10 @@ async function getLockedBooking(transaction: BookingTransaction, selector: Booki
   const condition = selector.kind === "host"
     ? and(eq(booking.id, selector.bookingId), eq(booking.hostId, selector.hostId))
     : eq(booking.confirmationToken, selector.confirmationToken);
-  const [record] = await transaction
-    .select()
-    .from(booking)
-    .where(condition)
-    .for("update");
+  const [owner] = await transaction.select({ hostId: booking.hostId }).from(booking).where(condition);
+  if (!owner) throw new BookingNotFoundError();
+  await lockBookingHost(transaction, owner.hostId);
+  const [record] = await transaction.select().from(booking).where(condition).for("update");
   if (!record) throw new BookingNotFoundError();
   return record;
 }
@@ -459,14 +458,11 @@ async function lockEventForBooking(
   return event;
 }
 
-async function lockHostEventForBooking(transaction: BookingTransaction, hostId: string) {
-  const [event] = await transaction
-    .select({ id: eventType.id })
-    .from(eventType)
-    .where(eq(eventType.userId, hostId))
-    .for("update");
-  if (!event) throw new BookingNotFoundError();
-  return event;
+async function lockBookingHost(transaction: BookingTransaction, hostId: string) {
+  // An event row only protects one page. Serialize every time-changing write for this host.
+  const [host] = await transaction.select({ id: user.id }).from(user)
+    .where(eq(user.id, hostId)).for("no key update");
+  if (!host) throw new BookingNotFoundError();
 }
 
 async function cancelBooking(selector: BookingActionSelector, actor: "host" | "invitee", reasonValue: unknown) {
@@ -479,8 +475,6 @@ async function cancelBooking(selector: BookingActionSelector, actor: "host" | "i
     if (existing.status !== "active" || existing.startUtc.getTime() <= now.getTime()) {
       throw new BookingNotAvailableError();
     }
-    if (existing.eventTypeId) await lockEventForBooking(transaction, existing.hostId, existing.eventTypeId);
-    else await lockHostEventForBooking(transaction, existing.hostId);
 
     const [cancelled] = await transaction
       .update(booking)
@@ -527,8 +521,7 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     if (startUtc.getTime() <= now.getTime()) throw new StaleBookingDetailsError();
     if (existing.startUtc.getTime() === startUtc.getTime()) throw new StaleBookingDetailsError();
 
-    const event = await lockEventForBooking(transaction, existing.hostId, existing.eventTypeId);
-    if (!event.active) throw new StaleBookingDetailsError();
+    const durationMinutes = (existing.endUtc.getTime() - existing.startUtc.getTime()) / 60_000;
     const [host] = await transaction
       .select({ timezone: user.timezone })
       .from(user)
@@ -538,11 +531,11 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
       throw new StaleBookingDetailsError();
     }
 
-    const endUtc = new Date(startUtc.getTime() + event.durationMinutes * 60_000);
+    const endUtc = new Date(startUtc.getTime() + durationMinutes * 60_000);
     const slots = await getAvailableSlots({
       hostId: existing.hostId,
       hostTimezone: host.timezone,
-      durationMinutes: event.durationMinutes,
+      durationMinutes,
       date: getDateInTimezone(startUtc, existing.inviteeTimezone),
       timezone: existing.inviteeTimezone,
       executor: transaction,

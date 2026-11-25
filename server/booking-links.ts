@@ -119,7 +119,7 @@ export async function createBookingLink(hostId: string, input: BookingLinkCreate
     const [hostEvent] = await transaction
       .select({ id: eventType.id, active: eventType.active })
       .from(eventType)
-      .where(eq(eventType.userId, hostId))
+      .where(and(eq(eventType.userId, hostId), eq(eventType.isDefault, true)))
       .for("update");
     if (!hostEvent || (input.kind === "event_type" && !hostEvent.active)) {
       throw new Error("Event type not found.");
