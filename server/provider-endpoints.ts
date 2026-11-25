@@ -5,9 +5,9 @@ export function providerEndpoint(canonical: string, testPath: string): string {
 
   // The built-image suite routes fictional credentials to a local test server.
   // The override does not apply to a hosted app.
-  const app = new URL(appOrigin);
-  const override = new URL(configured);
-  if (app.protocol === "http:" && ["127.0.0.1", "localhost"].includes(app.hostname)
+  const app = URL.parse(appOrigin);
+  const override = URL.parse(configured);
+  if (app && override && app.protocol === "http:" && ["127.0.0.1", "localhost"].includes(app.hostname)
     && override.protocol === "http:" && ["127.0.0.1", "localhost", "host.docker.internal"].includes(override.hostname)) {
     return new URL(testPath, override.origin).href;
   }

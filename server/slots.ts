@@ -1,3 +1,4 @@
+import type { BusyInterval } from "./google-calendar";
 import { and, eq, gt, inArray, lt, ne } from "drizzle-orm";
 
 import { getDb } from "./db";
@@ -98,6 +99,7 @@ export async function getAvailableSlots(query: {
   executor?: SlotExecutor;
   excludeBookingId?: string;
   applySchedulingLimits?: boolean;
+  busyTimes?: BusyInterval[];
 }): Promise<Date[]> {
   if (
     typeof query.hostId !== "string" ||
@@ -216,6 +218,7 @@ export async function getAvailableSlots(query: {
     rules,
     hostTimezone: query.hostTimezone,
     applySchedulingLimits,
+    busyTimes: query.busyTimes,
   });
 }
 
@@ -225,6 +228,7 @@ export async function getAvailableProposedStarts(query: {
   durationMinutes: number;
   starts: Date[];
   executor?: SlotExecutor;
+  busyTimes?: BusyInterval[];
 }): Promise<Date[]> {
   if (
     typeof query.hostId !== "string" ||
@@ -269,6 +273,7 @@ export async function getAvailableProposedStarts(query: {
     rules,
     hostTimezone: query.hostTimezone,
     applySchedulingLimits: false,
+    busyTimes: query.busyTimes,
   });
 
   return available.filter((start) => {
@@ -297,6 +302,7 @@ async function filterAvailableStarts(query: {
   rules?: AvailabilityRules;
   hostTimezone: string;
   applySchedulingLimits?: boolean;
+  busyTimes?: BusyInterval[];
 }): Promise<Date[]> {
   const now = new Date();
   const rules = query.rules ?? await getAvailabilityRules(query.hostId, query.executor);
@@ -365,6 +371,7 @@ async function filterAvailableStarts(query: {
         ) return false;
       }
       const interval = bufferedInterval(start, candidateEnds[index], rules);
+      if (query.busyTimes?.some((busy) => intervalsOverlap(interval, busy))) return false;
       return !existingBookings.some((existingBooking) =>
         intervalsOverlap(interval, bufferedInterval(existingBooking.startUtc, existingBooking.endUtc, rules)),
       );

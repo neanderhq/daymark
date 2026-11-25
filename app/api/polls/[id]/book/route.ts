@@ -1,3 +1,4 @@
+import { calendarErrorResponse } from "../../../../../server/google-calendar";
 import { getAuth } from "../../../../../server/auth";
 import {
   invalidBookingDetailsMessage,
@@ -54,6 +55,8 @@ export async function POST(request: Request, context: RouteContext) {
     });
     return Response.json(created, { status: 201 });
   } catch (error) {
+    const calendarUnavailable = calendarErrorResponse(error);
+    if (calendarUnavailable) return calendarUnavailable;
     if (error instanceof PollNotFoundError) {
       return Response.json({ error: pollNotFoundMessage }, { status: 404 });
     }

@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, integer, boolean, jsonb, uniqueIndex, index, check, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-import { user } from "./auth-schema";
+import { session, user } from "./auth-schema";
 
 export * from "./auth-schema";
 
@@ -356,3 +356,21 @@ export const bookingEmail = pgTable(
   },
   (table) => [uniqueIndex("booking_email_revision_idx").on(table.bookingId, table.revision)],
 );
+
+export const googleCalendarConnection = pgTable("google_calendar_connection", {
+  hostId: text("host_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  id: text("id").notNull(),
+  refreshCipher: text("refresh_cipher").notNull(),
+  accessCipher: text("access_cipher").notNull(),
+  accessExpiresAt: timestamp("access_expires_at").notNull(),
+  needsReconnect: boolean("needs_reconnect").default(false).notNull(),
+});
+
+export const googleCalendarRequest = pgTable("google_calendar_request", {
+  hostId: text("host_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  stateHash: text("state_hash").notNull(),
+  verifierCipher: text("verifier_cipher").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false).notNull(),
+});

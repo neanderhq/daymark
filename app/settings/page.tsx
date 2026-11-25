@@ -3,16 +3,18 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { BookingEmailSettings } from "../components/forms/booking-email-settings";
+import { GoogleCalendarSettings } from "../components/forms/google-calendar-settings";
 import { ProfileForm } from "../components/forms/profile-form";
 import { Card, PageHeader } from "../components/ui";
 import { getAuth } from "../../server/auth";
 import { bookingEmailConfigured, pendingBookingEmails } from "../../server/booking-email";
 import { getDb } from "../../server/db";
+import { googleCalendarStatus } from "../../server/google-calendar";
 import { user } from "../../server/schema";
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ calendar?: string }> }) {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
   const [profile] = await getDb()
@@ -23,6 +25,8 @@ export default async function SettingsPage() {
   if (!profile) redirect("/login");
   const emailConfigured = bookingEmailConfigured();
   const pending = emailConfigured ? (await pendingBookingEmails(session.user.id)).length : 0;
+  const calendar = await googleCalendarStatus(session.user.id);
+  const { calendar: result } = await searchParams;
 
   return (
     <main className="app-shell">
@@ -34,6 +38,7 @@ export default async function SettingsPage() {
         <PageHeader eyebrow="Your account" title="Profile settings" description="Keep your name, email, and time zone up to date." />
         <Card className="settings-card"><ProfileForm profile={profile} /></Card>
         <Card className="settings-card"><BookingEmailSettings configured={emailConfigured} pending={pending} /></Card>
+        <Card className="settings-card"><GoogleCalendarSettings {...calendar} result={result} /></Card>
       </div>
     </main>
   );

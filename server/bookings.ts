@@ -1,3 +1,4 @@
+import { googleBusyTimes, recordCalendarFailure } from "./google-calendar";
 import { deliverBookingEmail, queueBookingEmail } from "./booking-email";
 import { randomBytes } from "node:crypto";
 
@@ -15,6 +16,7 @@ import { invalidQuestionDetailsMessage, isUniqueViolation } from "./scheduling";
 import { availabilityRule, booking, bookingAnswer, bookingAttendee, bookingLink, eventType, poll, pollOption, user } from "./schema";
 import {
   bufferedInterval,
+  getAvailabilityRules,
   getAvailableProposedStarts,
   getAvailableSlots,
   intervalsOverlap,
@@ -347,6 +349,8 @@ export async function createBooking(input: {
       if (!slots.some((slot) => slot.getTime() === input.startUtc.getTime())) throw new StaleBookingDetailsError();
     }
 
+    await checkCalendarConflict(transaction, input.hostId, candidateInterval);
+
     const id = crypto.randomUUID();
     const confirmationToken = randomBytes(24).toString("base64url");
     await transaction.insert(booking).values({
@@ -426,6 +430,7 @@ export async function createBooking(input: {
     return { id: result.id, confirmationToken: result.confirmationToken };
   } catch (error) {
     if (isUniqueViolation(error, "booking_bookingLinkId_unique")) throw new BookingLinkAlreadyUsedError();
+    await recordCalendarFailure(error);
     throw error;
   }
 }
@@ -460,6 +465,11 @@ async function lockEventForBooking(
     .for("update");
   if (!event) throw new BookingNotFoundError();
   return event;
+}
+
+async function checkCalendarConflict(transaction: BookingTransaction, hostId: string, interval: { start: Date; end: Date }) {
+  const busy = await googleBusyTimes(hostId, interval.start, interval.end, transaction);
+  if (busy.some((entry) => intervalsOverlap(interval, entry))) throw new SlotTakenError();
 }
 
 async function lockBookingHost(transaction: BookingTransaction, hostId: string) {
@@ -551,6 +561,9 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     });
     if (!slots.some((slot) => slot.getTime() === startUtc.getTime())) throw new StaleBookingDetailsError();
 
+    const rules = await getAvailabilityRules(existing.hostId, transaction);
+    await checkCalendarConflict(transaction, existing.hostId, bufferedInterval(startUtc, endUtc, rules));
+
     const history = Array.isArray(existing.rescheduleHistory) ? existing.rescheduleHistory : [];
     const [updated] = await transaction
       .update(booking)
@@ -567,6 +580,9 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     await upsertBookingContact(transaction, existing.hostId, existing.inviteeName, existing.inviteeEmail);
     const deliveryId = await queueBookingEmail(transaction, updated.id, "rescheduled");
     return { updated, deliveryId };
+  }).catch(async (error: unknown) => {
+    await recordCalendarFailure(error);
+    throw error;
   });
   await deliverBookingEmail(result.deliveryId);
   return result.updated;

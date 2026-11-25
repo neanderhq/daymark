@@ -1,3 +1,4 @@
+import { calendarErrorResponse } from "../../../server/google-calendar";
 import {
   BookingNotAvailableError,
   BookingNotFoundError,
@@ -21,10 +22,13 @@ export function parseUtcStart(value: unknown): Date | null {
 }
 
 export function bookingActionErrorResponse(error: unknown) {
+  const unavailable = calendarErrorResponse(error);
+  if (unavailable) return unavailable;
   if (error instanceof BookingNotFoundError) {
     return Response.json({ error: "Booking not found." }, { status: 404 });
   }
-  if (error instanceof BookingNotAvailableError || error instanceof SlotTakenError) {
+  if (error instanceof SlotTakenError) return Response.json({ error: error.message }, { status: 409 });
+  if (error instanceof BookingNotAvailableError) {
     return Response.json({ error: "This booking can no longer be changed." }, { status: 409 });
   }
   if (error instanceof OneOffBookingCannotRescheduleError) {

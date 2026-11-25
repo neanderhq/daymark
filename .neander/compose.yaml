@@ -39,6 +39,26 @@ x-neander:
       source: generated
       provider: null
       generator: opaque-random
+    - service: web
+      name: DAYMARK_RESEND_API_KEY
+      required: false
+      source: user
+      provider: null
+    - service: web
+      name: DAYMARK_EMAIL_FROM
+      required: false
+      source: user
+      provider: null
+    - service: web
+      name: DAYMARK_GOOGLE_CLIENT_ID
+      required: false
+      source: user
+      provider: null
+    - service: web
+      name: DAYMARK_GOOGLE_CLIENT_SECRET
+      required: false
+      source: user
+      provider: null
   probes:
     - path: /api/health
       success_status_range: 2xx

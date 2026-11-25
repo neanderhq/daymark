@@ -2,6 +2,7 @@ import { and, eq, gt } from "drizzle-orm";
 
 import { availabilityDates, availabilityPayload } from "../../../../server/calendar-availability";
 import { getAuth } from "../../../../server/auth";
+import { calendarErrorResponse, googleBusyForDates } from "../../../../server/google-calendar";
 import { getDb } from "../../../../server/db";
 import { invalidSlugMessage, invalidTimezoneMessage, normalizeSlug } from "../../../../server/profile-validation";
 import { getAvailableSlots } from "../../../../server/slots";
@@ -80,14 +81,22 @@ export async function GET(request: Request) {
     return Response.json({ error: "This booking page isn’t available." }, { status: 404 });
   }
 
-  const payload = await availabilityPayload(dates, query.has("month"), date => getAvailableSlots({
-    hostId: event.hostId,
-    hostTimezone: event.hostTimezone,
-    durationMinutes,
-    date,
-    timezone,
-    excludeBookingId,
-    applySchedulingLimits: !isPollReschedule,
-  }));
-  return Response.json(payload);
+  try {
+    const busyTimes = await googleBusyForDates(event.hostId, dates);
+    const payload = await availabilityPayload(dates, query.has("month"), date => getAvailableSlots({
+      hostId: event.hostId,
+      hostTimezone: event.hostTimezone,
+      durationMinutes,
+      date,
+      timezone,
+      excludeBookingId,
+      applySchedulingLimits: !isPollReschedule,
+      busyTimes,
+    }));
+    return Response.json(payload);
+  } catch (error) {
+    const response = calendarErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
 }

@@ -1,3 +1,4 @@
+import { calendarErrorResponse } from "../../../../server/google-calendar";
 import { and, eq, gt, lt } from "drizzle-orm";
 
 import {
@@ -85,6 +86,8 @@ export async function POST(request: Request) {
     });
     return Response.json(created, { status: 201 });
   } catch (error) {
+    const calendarUnavailable = calendarErrorResponse(error);
+    if (calendarUnavailable) return calendarUnavailable;
     if (error instanceof StaleBookingDetailsError) {
       return Response.json({ error: "Choose an available time." }, { status: 400 });
     }

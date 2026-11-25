@@ -2,6 +2,7 @@ import { availabilityDates, availabilityPayload } from "../../../../../../server
 import { BookingLinkAlreadyUsedError, BookingLinkNotFoundError, BookingLinkUnavailableError } from "../../../../../../server/bookings";
 import { bookingLinkTokenPattern, getPublicBookingLink, proposedStartsForDate } from "../../../../../../server/booking-links";
 import { getAvailableProposedStarts, getAvailableSlots } from "../../../../../../server/slots";
+import { calendarErrorResponse, googleBusyForDates } from "../../../../../../server/google-calendar";
 import { getDateInTimezone, isIanaTimezone } from "../../../../../../server/timezone";
 
 type RouteContext = { params: Promise<{ token: string }> };
@@ -33,6 +34,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const link = await getPublicBookingLink(token);
+    const busyTimes = await googleBusyForDates(link.hostId, dates);
     if (link.kind === "event_type") {
       const payload = await availabilityPayload(dates, query.has("month"), date => getAvailableSlots({
         hostId: link.hostId,
@@ -40,17 +42,18 @@ export async function GET(request: Request, context: RouteContext) {
         durationMinutes: link.durationMinutes,
         date,
         timezone,
+        busyTimes,
       }));
       return Response.json(payload);
     }
 
     const payload = await availabilityPayload(dates, query.has("month"), async date => {
       const proposed = proposedStartsForDate(link.proposedStarts ?? [], date, timezone);
-      const free = await getAvailableProposedStarts({ hostId: link.hostId, hostTimezone: link.hostTimezone, durationMinutes: link.durationMinutes, starts: proposed });
+      const free = await getAvailableProposedStarts({ hostId: link.hostId, hostTimezone: link.hostTimezone, durationMinutes: link.durationMinutes, starts: proposed, busyTimes });
       return free.filter(start => getDateInTimezone(start, timezone) === date);
     });
     return Response.json(payload);
   } catch (error) {
-    return unavailableResponse(error) ?? Response.json({ error: "Unable to load available times." }, { status: 500 });
+    return unavailableResponse(error) ?? calendarErrorResponse(error) ?? Response.json({ error: "Unable to load available times." }, { status: 500 });
   }
 }

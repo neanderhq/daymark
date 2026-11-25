@@ -1,3 +1,4 @@
+import { calendarErrorResponse } from "../../../../../server/google-calendar";
 import {
   BookingLinkAlreadyUsedError,
   BookingLinkNotFoundError,
@@ -96,6 +97,8 @@ export async function POST(request: Request, context: RouteContext) {
     });
     return Response.json(created, { status: 201 });
   } catch (error) {
+    const calendarUnavailable = calendarErrorResponse(error);
+    if (calendarUnavailable) return calendarUnavailable;
     const unavailable = unavailableResponse(error);
     if (unavailable) return unavailable;
     if (error instanceof SlotTakenError) return Response.json({ error: slotTakenMessage }, { status: 409 });
