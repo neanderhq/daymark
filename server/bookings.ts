@@ -1,3 +1,5 @@
+import { googleBusyTimes, recordCalendarFailure } from "./google-calendar";
+import { deliverBookingEmail, queueBookingEmail } from "./booking-email";
 import { randomBytes } from "node:crypto";
 
 import { and, eq, gt, lt } from "drizzle-orm";
@@ -14,6 +16,7 @@ import { invalidQuestionDetailsMessage, isUniqueViolation } from "./scheduling";
 import { availabilityRule, booking, bookingAnswer, bookingAttendee, bookingLink, eventType, poll, pollOption, user } from "./schema";
 import {
   bufferedInterval,
+  getAvailabilityRules,
   getAvailableProposedStarts,
   getAvailableSlots,
   intervalsOverlap,
@@ -213,7 +216,8 @@ export async function createBooking(input: {
   if (!input.bookingLinkId && !input.eventTypeId) throw new Error(invalidBookingDetailsMessage);
 
   try {
-    return await getDb().transaction(async (transaction) => {
+    const result = await getDb().transaction(async (transaction) => {
+      await lockBookingHost(transaction, input.hostId);
       let resolvedEventTypeId = input.eventTypeId ?? null;
       let meetingDuration: number;
       let link: typeof bookingLink.$inferSelect | null = null;
@@ -238,7 +242,6 @@ export async function createBooking(input: {
           meetingDuration = lockedEvent.durationMinutes;
         } else {
           if (!lockedLink.durationMinutes || !lockedLink.proposedStarts) throw new BookingLinkUnavailableError();
-          await lockHostEventForBooking(transaction, input.hostId);
           if (!lockedLink.proposedStarts.some((start) => start.getTime() === input.startUtc.getTime())) {
             throw new StaleBookingDetailsError();
           }
@@ -248,7 +251,7 @@ export async function createBooking(input: {
       } else {
         if (!resolvedEventTypeId) throw new Error(invalidBookingDetailsMessage);
         const lockedEvent = await lockEventForBooking(transaction, input.hostId, resolvedEventTypeId);
-        if (!lockedEvent.active) throw new StaleBookingDetailsError();
+        if (!lockedEvent.active && !input.pollId) throw new StaleBookingDetailsError();
         meetingDuration = input.durationMinutes ?? lockedEvent.durationMinutes;
       }
 
@@ -346,6 +349,8 @@ export async function createBooking(input: {
       if (!slots.some((slot) => slot.getTime() === input.startUtc.getTime())) throw new StaleBookingDetailsError();
     }
 
+    await checkCalendarConflict(transaction, input.hostId, candidateInterval);
+
     const id = crypto.randomUUID();
     const confirmationToken = randomBytes(24).toString("base64url");
     await transaction.insert(booking).values({
@@ -418,10 +423,14 @@ export async function createBooking(input: {
       if (!usedLink) throw new BookingLinkAlreadyUsedError();
     }
 
-    return { id, confirmationToken };
+    const deliveryId = await queueBookingEmail(transaction, id, "confirmed");
+    return { id, confirmationToken, deliveryId };
     });
+    await deliverBookingEmail(result.deliveryId);
+    return { id: result.id, confirmationToken: result.confirmationToken };
   } catch (error) {
     if (isUniqueViolation(error, "booking_bookingLinkId_unique")) throw new BookingLinkAlreadyUsedError();
+    await recordCalendarFailure(error);
     throw error;
   }
 }
@@ -436,11 +445,10 @@ async function getLockedBooking(transaction: BookingTransaction, selector: Booki
   const condition = selector.kind === "host"
     ? and(eq(booking.id, selector.bookingId), eq(booking.hostId, selector.hostId))
     : eq(booking.confirmationToken, selector.confirmationToken);
-  const [record] = await transaction
-    .select()
-    .from(booking)
-    .where(condition)
-    .for("update");
+  const [owner] = await transaction.select({ hostId: booking.hostId }).from(booking).where(condition);
+  if (!owner) throw new BookingNotFoundError();
+  await lockBookingHost(transaction, owner.hostId);
+  const [record] = await transaction.select().from(booking).where(condition).for("update");
   if (!record) throw new BookingNotFoundError();
   return record;
 }
@@ -459,28 +467,28 @@ async function lockEventForBooking(
   return event;
 }
 
-async function lockHostEventForBooking(transaction: BookingTransaction, hostId: string) {
-  const [event] = await transaction
-    .select({ id: eventType.id })
-    .from(eventType)
-    .where(eq(eventType.userId, hostId))
-    .for("update");
-  if (!event) throw new BookingNotFoundError();
-  return event;
+async function checkCalendarConflict(transaction: BookingTransaction, hostId: string, interval: { start: Date; end: Date }) {
+  const busy = await googleBusyTimes(hostId, interval.start, interval.end, transaction);
+  if (busy.some((entry) => intervalsOverlap(interval, entry))) throw new SlotTakenError();
+}
+
+async function lockBookingHost(transaction: BookingTransaction, hostId: string) {
+  // An event row only protects one page. Serialize every time-changing write for this host.
+  const [host] = await transaction.select({ id: user.id }).from(user)
+    .where(eq(user.id, hostId)).for("no key update");
+  if (!host) throw new BookingNotFoundError();
 }
 
 async function cancelBooking(selector: BookingActionSelector, actor: "host" | "invitee", reasonValue: unknown) {
   const validatedReason = validateCancellationReason(reasonValue);
   if (!validatedReason.ok) throw new Error(validatedReason.error);
 
-  return getDb().transaction(async (transaction) => {
+  const result = await getDb().transaction(async (transaction) => {
     const existing = await getLockedBooking(transaction, selector);
     const now = new Date();
     if (existing.status !== "active" || existing.startUtc.getTime() <= now.getTime()) {
       throw new BookingNotAvailableError();
     }
-    if (existing.eventTypeId) await lockEventForBooking(transaction, existing.hostId, existing.eventTypeId);
-    else await lockHostEventForBooking(transaction, existing.hostId);
 
     const [cancelled] = await transaction
       .update(booking)
@@ -494,8 +502,11 @@ async function cancelBooking(selector: BookingActionSelector, actor: "host" | "i
       .where(and(eq(booking.id, existing.id), eq(booking.status, "active"), gt(booking.startUtc, now)))
       .returning({ id: booking.id });
     if (!cancelled) throw new BookingNotAvailableError();
-    return cancelled;
+    const deliveryId = await queueBookingEmail(transaction, cancelled.id, "cancelled");
+    return { cancelled, deliveryId };
   });
+  await deliverBookingEmail(result.deliveryId);
+  return result.cancelled;
 }
 
 export function cancelBookingAsHost(input: { hostId: string; bookingId: string; reason?: unknown }) {
@@ -509,7 +520,7 @@ export function cancelBookingByConfirmationToken(input: { confirmationToken: str
 async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date) {
   if (!(startUtc instanceof Date) || !Number.isFinite(startUtc.getTime())) throw new StaleBookingDetailsError();
 
-  return getDb().transaction(async (transaction) => {
+  const result = await getDb().transaction(async (transaction) => {
     const existing = await getLockedBooking(transaction, selector);
     const now = new Date();
     if (existing.status !== "active" || existing.startUtc.getTime() <= now.getTime()) {
@@ -527,8 +538,7 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     if (startUtc.getTime() <= now.getTime()) throw new StaleBookingDetailsError();
     if (existing.startUtc.getTime() === startUtc.getTime()) throw new StaleBookingDetailsError();
 
-    const event = await lockEventForBooking(transaction, existing.hostId, existing.eventTypeId);
-    if (!event.active) throw new StaleBookingDetailsError();
+    const durationMinutes = (existing.endUtc.getTime() - existing.startUtc.getTime()) / 60_000;
     const [host] = await transaction
       .select({ timezone: user.timezone })
       .from(user)
@@ -538,11 +548,11 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
       throw new StaleBookingDetailsError();
     }
 
-    const endUtc = new Date(startUtc.getTime() + event.durationMinutes * 60_000);
+    const endUtc = new Date(startUtc.getTime() + durationMinutes * 60_000);
     const slots = await getAvailableSlots({
       hostId: existing.hostId,
       hostTimezone: host.timezone,
-      durationMinutes: event.durationMinutes,
+      durationMinutes,
       date: getDateInTimezone(startUtc, existing.inviteeTimezone),
       timezone: existing.inviteeTimezone,
       executor: transaction,
@@ -550,6 +560,9 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
       applySchedulingLimits: existing.pollId === null,
     });
     if (!slots.some((slot) => slot.getTime() === startUtc.getTime())) throw new StaleBookingDetailsError();
+
+    const rules = await getAvailabilityRules(existing.hostId, transaction);
+    await checkCalendarConflict(transaction, existing.hostId, bufferedInterval(startUtc, endUtc, rules));
 
     const history = Array.isArray(existing.rescheduleHistory) ? existing.rescheduleHistory : [];
     const [updated] = await transaction
@@ -565,8 +578,14 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     if (!updated) throw new BookingNotAvailableError();
 
     await upsertBookingContact(transaction, existing.hostId, existing.inviteeName, existing.inviteeEmail);
-    return updated;
+    const deliveryId = await queueBookingEmail(transaction, updated.id, "rescheduled");
+    return { updated, deliveryId };
+  }).catch(async (error: unknown) => {
+    await recordCalendarFailure(error);
+    throw error;
   });
+  await deliverBookingEmail(result.deliveryId);
+  return result.updated;
 }
 
 export function rescheduleBookingAsHost(input: { hostId: string; bookingId: string; startUtc: Date }) {

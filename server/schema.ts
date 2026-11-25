@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, integer, boolean, jsonb, uniqueIndex, index, check, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-import { user } from "./auth-schema";
+import { session, user } from "./auth-schema";
 
 export * from "./auth-schema";
 
@@ -20,6 +20,7 @@ export const eventType = pgTable(
     location: text("location"),
     slug: text("slug").notNull(),
     active: boolean("active").default(true).notNull(),
+    isDefault: boolean("is_default").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -27,7 +28,7 @@ export const eventType = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("event_type_userId_unique").on(table.userId),
+    uniqueIndex("event_type_default_owner_idx").on(table.userId).where(sql`${table.isDefault}`),
     uniqueIndex("event_type_userId_slug_unique").on(table.userId, table.slug),
   ],
 );
@@ -334,3 +335,42 @@ export const bookingAttendee = pgTable(
     index("booking_attendee_bookingId_idx").on(table.bookingId),
   ],
 );
+
+export type BookingEmailKind = "confirmed" | "rescheduled" | "cancelled";
+export type BookingEmailStatus = "pending" | "accepted" | "failed" | "unconfigured" | "superseded";
+
+export const bookingEmail = pgTable(
+  "booking_email",
+  {
+    id: text("id").primaryKey(),
+    bookingId: text("booking_id").notNull().references(() => booking.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    kind: text("kind").$type<BookingEmailKind>().notNull(),
+    status: text("status").$type<BookingEmailStatus>().notNull(),
+    sender: text("sender"),
+    recipient: text("recipient").notNull(),
+    subject: text("subject").notNull(),
+    message: text("message").notNull(),
+    firstAttemptAt: timestamp("first_attempt_at"),
+    nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("booking_email_revision_idx").on(table.bookingId, table.revision)],
+);
+
+export const googleCalendarConnection = pgTable("google_calendar_connection", {
+  hostId: text("host_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  id: text("id").notNull(),
+  refreshCipher: text("refresh_cipher").notNull(),
+  accessCipher: text("access_cipher").notNull(),
+  accessExpiresAt: timestamp("access_expires_at").notNull(),
+  needsReconnect: boolean("needs_reconnect").default(false).notNull(),
+});
+
+export const googleCalendarRequest = pgTable("google_calendar_request", {
+  hostId: text("host_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  stateHash: text("state_hash").notNull(),
+  verifierCipher: text("verifier_cipher").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false).notNull(),
+});

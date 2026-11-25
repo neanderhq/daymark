@@ -306,3 +306,38 @@ button:disabled { cursor: wait; opacity: .68; }
   .dashboard-summary { padding-top: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+.booking-page-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.booking-page-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.booking-page-option[aria-current="page"] {
+  border-color: currentColor;
+}
+
+.booking-page-option span {
+  font-size: 0.875rem;
+}
+
+.integration-settings {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: start;
+}
+.integration-settings h2, .integration-settings p { margin: 0; }
+
+.settings-content > .settings-card + .settings-card { margin-top: 1rem; }

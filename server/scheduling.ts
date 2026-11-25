@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { invalidSlugMessage, normalizeSlug } from "./profile-validation";
 import { getDb } from "./db";
@@ -355,7 +355,7 @@ export function validateBlockedTimeInput(body: Record<string, unknown>): Validat
 
 export async function getOrCreateEventType(userId: string) {
   const database = getDb();
-  const existing = await database.select().from(eventType).where(eq(eventType.userId, userId)).limit(1);
+  const existing = await database.select().from(eventType).where(and(eq(eventType.userId, userId), eq(eventType.isDefault, true))).limit(1);
   if (existing[0]) return existing[0];
 
   const inserted = await database
@@ -369,12 +369,13 @@ export async function getOrCreateEventType(userId: string) {
       location: null,
       slug: "30min",
       active: true,
+      isDefault: true,
     })
-    .onConflictDoNothing({ target: eventType.userId })
+    .onConflictDoNothing()
     .returning();
   if (inserted[0]) return inserted[0];
 
-  const current = await database.select().from(eventType).where(eq(eventType.userId, userId)).limit(1);
+  const current = await database.select().from(eventType).where(and(eq(eventType.userId, userId), eq(eventType.isDefault, true))).limit(1);
   if (!current[0]) throw new Error("Event type could not be created.");
   return current[0];
 }

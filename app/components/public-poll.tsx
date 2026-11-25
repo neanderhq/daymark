@@ -23,7 +23,7 @@ type PublicPollData = {
   status: "open" | "closed";
   options: PublicPollOption[];
   votes: PublicPollVote[];
-  booking: { startUtc: string } | null;
+  booking: { startUtc: string; status: "active" | "cancelled" } | null;
 };
 
 const timezones = Intl.supportedValuesOf("timeZone");
@@ -163,7 +163,7 @@ export function PublicPoll({ token }: { token: string }) {
               {isClosed && (
                 <Card className="poll-final-card" aria-labelledby="poll-final-heading">
                   <p className="eyebrow">Voting is closed</p>
-                  <h2 id="poll-final-heading">Final booked time</h2>
+                  <h2 id="poll-final-heading">{poll.booking?.status === "cancelled" ? "Meeting cancelled" : "Final booked time"}</h2>
                   {poll.booking ? (
                     <p className="poll-final-time">{formatInTimezone(poll.booking.startUtc, timezone)}</p>
                   ) : (
@@ -186,7 +186,7 @@ export function PublicPoll({ token }: { token: string }) {
                     const voters = poll.showVotes
                       ? poll.votes.filter((vote) => vote.optionIds.includes(option.id))
                       : [];
-                    const isBookedTime = Boolean(poll.booking && poll.booking.startUtc === option.startUtc);
+                    const isBookedTime = poll.booking?.status === "active" && poll.booking.startUtc === option.startUtc;
                     return (
                       <li className="result-row" key={option.id}>
                         {!submitted && (
@@ -229,7 +229,7 @@ export function PublicPoll({ token }: { token: string }) {
                       const voters = poll.showVotes
                         ? poll.votes.filter((vote) => vote.optionIds.includes(option.id))
                         : [];
-                      const isBookedTime = Boolean(poll.booking && poll.booking.startUtc === option.startUtc);
+                      const isBookedTime = poll.booking?.status === "active" && poll.booking.startUtc === option.startUtc;
                       return (
                         <li className="result-row" key={option.id}>
                           <div className="result-row-main">

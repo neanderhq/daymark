@@ -31,7 +31,7 @@ export async function seed({ databaseUrl, password }) {
     const passwordHash = await hashPassword(password);
     await client.query('INSERT INTO "user" (id,name,email,email_verified,timezone,username) VALUES ($1,$2,$3,true,$4,$5)', [DEMO_HOST_ID, 'Maya Chen', DEMO_EMAIL, 'UTC', 'maya-chen']);
     await client.query('INSERT INTO account (id,account_id,provider_id,user_id,password,created_at,updated_at) VALUES ($1,$2,$3,$2,$4,NOW(),NOW())', ['template-calendly-credential', DEMO_HOST_ID, 'credential', passwordHash]);
-    await client.query('INSERT INTO event_type (id,user_id,name,description,duration_minutes,location,slug) VALUES ($1,$2,$3,$4,30,$5,$6)', ['template-calendly-event', DEMO_HOST_ID, 'Discovery call', 'A friendly introduction to your project and what we can build together.', 'Video call — details shared after booking', 'discovery-call']);
+    await client.query('INSERT INTO event_type (id,user_id,name,description,duration_minutes,location,slug,is_default) VALUES ($1,$2,$3,$4,30,$5,$6,true)', ['template-calendly-event', DEMO_HOST_ID, 'Discovery call', 'A friendly introduction to your project and what we can build together.', 'Video call — details shared after booking', 'discovery-call']);
     await client.query('INSERT INTO booking_question (id,user_id,label,question_type,required,position) VALUES ($1,$2,$3,$4,false,0)', ['template-calendly-question', DEMO_HOST_ID, 'What would you like to discuss?', 'long_text']);
     for (let weekday = 1; weekday <= 5; weekday++) {
       await client.query('INSERT INTO availability_range (id,user_id,weekday,start_minute,end_minute) VALUES ($1,$2,$3,540,1020)', [`template-calendly-hours-${weekday}`, DEMO_HOST_ID, weekday]);

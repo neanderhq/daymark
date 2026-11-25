@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 
 import { CopyButton } from "../copy-button";
 import { Button, EmptyState, ErrorField, Input } from "../ui";
@@ -39,7 +40,14 @@ async function readResult(response: Response) {
   return result.error || "Your changes couldn’t be saved. Please try again.";
 }
 
-export function EventTypeForm({ event, username, questions }: { event: EventRecord; username: string | null; questions: QuestionRecord[] }) {
+export function EventTypeForm({ event, username, questions, mode = "default" }: {
+  event: EventRecord;
+  username: string | null;
+  questions: QuestionRecord[];
+  mode?: "default" | "new" | "secondary";
+}) {
+  const router = useRouter();
+  const [savedPath, setSavedPath] = useState(username && event.id ? `/${username}/${event.slug}` : "");
   const [currentEvent, setCurrentEvent] = useState(event);
   const [currentUsername, setCurrentUsername] = useState(username);
   const [durationChoice, setDurationChoice] = useState(
@@ -47,6 +55,7 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
   );
   const [customDuration, setCustomDuration] = useState(String(standardDurations.includes(event.durationMinutes) ? 20 : event.durationMinutes));
   const [eventError, setEventError] = useState("");
+  const [slugError, setSlugError] = useState("");
   const [eventSaved, setEventSaved] = useState(false);
   const [eventPending, setEventPending] = useState(false);
   const [currentQuestions, setCurrentQuestions] = useState(questions);
@@ -64,10 +73,11 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
     event_.preventDefault();
     setEventPending(true);
     setEventError("");
+    setSlugError("");
     setEventSaved(false);
     try {
       const response = await fetch("/api/event-type", {
-        method: "PATCH",
+        method: mode === "new" ? "POST" : "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: currentEvent.name,
@@ -76,17 +86,30 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
           location: currentEvent.location,
           slug: currentEvent.slug,
           active: currentEvent.active,
-          username: currentUsername,
+          ...(mode === "default" ? { username: currentUsername } : mode === "secondary" ? { id: event.id } : {}),
         }),
       });
       if (!response.ok) {
-        setEventError(await readResult(response));
+        const result = await response.json().catch(() => ({})) as { error?: string; field?: string };
+        const message = result.error || "Your changes couldn’t be saved. Please try again.";
+        if (result.field === "slug") {
+          setSlugError(message);
+          document.getElementById("event-slug")?.focus();
+        } else setEventError(message);
         return;
       }
-      const saved = (await response.json()) as EventRecord & { username?: string };
+      const saved = (await response.json()) as EventRecord & { username?: string | null };
+      if (mode === "new") {
+        router.replace(`/dashboard/event-type?page=${saved.id}`);
+        router.refresh();
+        return;
+      }
+      const savedUsername = saved.username ?? username;
+      setSavedPath(savedUsername ? `/${savedUsername}/${saved.slug}` : "");
       setCurrentEvent(saved);
-      if (saved.username !== undefined) setCurrentUsername(saved.username);
+      setCurrentUsername(savedUsername);
       setEventSaved(true);
+      router.refresh();
     } catch {
       setEventError("Your changes couldn’t be saved. Check your connection and try again.");
     } finally {
@@ -217,15 +240,14 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
     }
   }
 
-  const publicPath = currentUsername ? `/${currentUsername}/${currentEvent.slug}` : "";
-  const publicUrl = publicPath ? `${origin}${publicPath}` : "";
+  const publicUrl = savedPath && origin ? `${origin}${savedPath}` : "";
 
   return (
     <div className="scheduling-form">
       <form className="form-stack scheduling-section" onSubmit={saveEvent}>
         <div className="form-grid">
           <Input name="event-name" label="Event name" maxLength={80} value={currentEvent.name} onChange={(change) => setCurrentEvent({ ...currentEvent, name: change.target.value })} required />
-          <Input name="event-slug" label="Event URL ending" hint="Lowercase letters, numbers, and hyphens." maxLength={64} value={currentEvent.slug} onChange={(change) => setCurrentEvent({ ...currentEvent, slug: change.target.value })} required />
+          <Input name="event-slug" label="Event URL ending" hint={mode === "secondary" ? "The URL ending stays fixed after creation." : "Lowercase letters, numbers, and hyphens."} error={slugError} readOnly={mode === "secondary"} maxLength={64} value={currentEvent.slug} onChange={(change) => { setCurrentEvent({ ...currentEvent, slug: change.target.value }); setSlugError(""); }} required />
           <div className="field">
             <label htmlFor="event-duration">Duration</label>
             <select id="event-duration" className="input" value={durationChoice} onChange={(change) => setDurationChoice(change.target.value)}>
@@ -244,25 +266,25 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
         </div>
         <div className="form-grid">
           <Input name="event-location" label="Location" maxLength={500} value={currentEvent.location ?? ""} onChange={(change) => setCurrentEvent({ ...currentEvent, location: change.target.value })} />
-          <Input name="username" label="Public username" hint="This creates /username/event-url." maxLength={64} value={currentUsername ?? ""} onChange={(change) => setCurrentUsername(change.target.value)} />
+          {mode === "default" && <Input name="username" label="Public username" hint="Changes affect all booking page URLs." maxLength={64} value={currentUsername ?? ""} onChange={(change) => setCurrentUsername(change.target.value)} />}
         </div>
         <label className="checkbox-field">
           <input type="checkbox" checked={currentEvent.active} onChange={(change) => setCurrentEvent({ ...currentEvent, active: change.target.checked })} />
           <span>Active and ready to share</span>
         </label>
-        <div className="url-row">
+        {mode !== "new" && <div className="url-row">
           <div>
             <span className="field-label">Public booking URL</span>
-            <code>{publicPath || "Choose a username to create your URL"}</code>
+            <code>{savedPath || "Choose a username to create your URL"}</code>
           </div>
           <CopyButton value={publicUrl} disabled={!publicUrl} />
-        </div>
+        </div>}
         {eventError && <ErrorField>{eventError}</ErrorField>}
         {eventSaved && <p className="success-message" role="status">Your event type is up to date.</p>}
-        <Button type="submit" disabled={eventPending}>{eventPending ? "Saving…" : "Save event type"}</Button>
+        <Button type="submit" disabled={eventPending}>{eventPending ? "Saving…" : mode === "new" ? "Create booking page" : "Save event type"}</Button>
       </form>
 
-      <section className="question-editor">
+      {mode === "default" && <section className="question-editor">
         <div className="section-heading">
           <h2>Booking questions</h2>
           <p>Name and email are always asked.</p>
@@ -330,7 +352,7 @@ export function EventTypeForm({ event, username, questions }: { event: EventReco
           </label>
           <Button type="submit" disabled={questionPending}>{questionPendingAction === "add" ? "Adding…" : "Add question"}</Button>
         </form>
-      </section>
+      </section>}
     </div>
   );
 }

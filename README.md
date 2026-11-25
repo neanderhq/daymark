@@ -10,10 +10,12 @@ A scheduling app with public booking pages and a private host dashboard.
 
 ## What you can build
 
-- Publish a booking page with an event type, meeting duration and custom questions.
+- Publish distinct one-on-one booking pages with host-wide availability and intake questions.
 - Set weekday availability, date overrides, buffers and booking limits.
 - Manage bookings and contacts, and create one-off booking links.
 - Collect votes in meeting polls and choose a time.
+- Offer a calendar file on booking receipts and optionally send invitee lifecycle email.
+- Optionally check busy time on a host’s primary Google Calendar.
 
 ## How this fits into Neander
 
@@ -94,6 +96,19 @@ Sign in as **`maya.chen@example.invalid`** with your `DEMO_HOST_PASSWORD`.
 ### Try the booking flow
 
 Sign in, review **Availability**, then open `/maya-chen/discovery-call` in a separate browser session. Book a free slot and check the host dashboard for the new booking.
+
+## Optional booking integrations
+
+Configure integrations in the app's server environment. Leave the corresponding pair unset to run with local availability or web receipts.
+
+| Variables | Operator setup |
+| --- | --- |
+| `DAYMARK_RESEND_API_KEY`, `DAYMARK_EMAIL_FROM` | A Resend sending key and verified sender address. The configured instance sends the booking's primary invitee a confirmation or change message. Each booking still has a private web receipt. |
+| `DAYMARK_GOOGLE_CLIENT_ID`, `DAYMARK_GOOGLE_CLIENT_SECRET` | A Google OAuth web client with Calendar API enabled. Register the exact `BETTER_AUTH_URL` origin plus `/api/settings/google-calendar/callback` as an authorized redirect URI. |
+
+Hosts connect their own primary calendar in Settings. Daymark requests only Calendar free/busy scope, stores credentials encrypted with the application's server secret, and rechecks before committing a booking or reschedule. A connected calendar that cannot be checked temporarily blocks new confirmations. Hosts can reconnect to restore calendar checks or disconnect to return to manual scheduling.
+
+Email delivery attempts follow the booking commit. A host can retry eligible pending messages in Settings within the provider's idempotency window. The receipt reports provider acceptance separately from booking status. Calendar files are importable snapshots and future changes are reflected on the current web receipt.
 
 ## Sample data
 

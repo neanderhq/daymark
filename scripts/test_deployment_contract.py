@@ -18,7 +18,12 @@ class DeploymentExamplesTests(unittest.TestCase):
         self.assertEqual(metadata['ingress']['root_probe'], '/')
         self.assertEqual(metadata['probes'], [{'path': '/api/health', 'success_status_range': '2xx'}])
         requirements = {item['name']: item for item in metadata['environment']}
-        self.assertEqual(set(requirements), {'DATABASE_URL', 'BETTER_AUTH_URL', 'BETTER_AUTH_SECRET', 'DEMO_HOST_PASSWORD'})
+        core = {'DATABASE_URL', 'BETTER_AUTH_URL', 'BETTER_AUTH_SECRET', 'DEMO_HOST_PASSWORD'}
+        optional = {'DAYMARK_RESEND_API_KEY', 'DAYMARK_EMAIL_FROM', 'DAYMARK_GOOGLE_CLIENT_ID', 'DAYMARK_GOOGLE_CLIENT_SECRET'}
+        self.assertEqual(set(requirements), core | optional)
+        self.assertTrue(all(requirements[name]['required'] is True for name in core))
+        for name in optional:
+            self.assertEqual(requirements[name], {'service': 'web', 'name': name, 'required': False, 'source': 'user', 'provider': None})
         self.assertEqual(requirements['DATABASE_URL']['provider'], 'Neon')
         self.assertEqual(requirements['BETTER_AUTH_URL']['provider'], 'Neander')
         self.assertEqual(requirements['BETTER_AUTH_URL']['binding'], 'public_origin')
@@ -28,7 +33,7 @@ class DeploymentExamplesTests(unittest.TestCase):
         self.assertEqual(requirements['DEMO_HOST_PASSWORD']['source'], 'generated')
         self.assertIsNone(requirements['DEMO_HOST_PASSWORD']['provider'])
         self.assertEqual(requirements['DEMO_HOST_PASSWORD']['generator'], 'opaque-random')
-        self.assertTrue(all(item['required'] and item['service'] == 'web' for item in requirements.values()))
+        self.assertTrue(all(item['service'] == 'web' for item in requirements.values()))
 
     def test_database_and_auth_recipes_declare_complete_requirements(self):
         examples = list((ROOT / '.neander/blocks').glob('*/.neander/compose.yaml.example'))

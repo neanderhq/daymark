@@ -1,85 +1,72 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getAuth } from "../../../server/auth";
 import { getDb } from "../../../server/db";
 import { invalidSlugMessage, isReservedUsername, normalizeSlug, reservedUsernameMessage } from "../../../server/profile-validation";
-import {
-  ensureSchedulingDefaults,
-  getOrCreateEventType,
-  hasOnlyKeys,
-  invalidEventDetailsMessage,
-  isUniqueViolation,
-  readJsonBody,
-  validateEventInput,
-} from "../../../server/scheduling";
+import { ensureSchedulingDefaults, hasOnlyKeys, invalidEventDetailsMessage, isUniqueViolation, readJsonBody, validateEventInput } from "../../../server/scheduling";
 import { eventType, user } from "../../../server/schema";
 
-const allowedKeys = ["name", "description", "durationMinutes", "location", "slug", "active", "username"];
+const fields = ["name", "description", "durationMinutes", "location", "slug", "active"];
 
-async function update(request: Request) {
+async function save(request: Request, create: boolean) {
   const session = await getAuth().api.getSession({ headers: request.headers });
-  if (!session) return Response.json({ error: "Sign in to update your event type." }, { status: 401 });
+  if (!session) return Response.json({ error: "Sign in to manage your booking pages." }, { status: 401 });
 
   const body = await readJsonBody(request);
-  if (!body || !hasOnlyKeys(body, allowedKeys)) {
+  if (!body || !hasOnlyKeys(body, create ? fields : [...fields, "username", "id"])) {
     return Response.json({ error: invalidEventDetailsMessage }, { status: 400 });
   }
-  const validatedEvent = validateEventInput(body);
-  if (!validatedEvent.ok) return Response.json({ error: validatedEvent.error }, { status: 400 });
+  const validated = validateEventInput(body);
+  if (!validated.ok) {
+    return Response.json({ error: validated.error, field: validated.error === invalidSlugMessage ? "slug" : undefined }, { status: 400 });
+  }
 
+  const id = body.id;
+  if (id !== undefined && (typeof id !== "string" || id.length === 0 || id.length > 128)) {
+    return Response.json({ error: "Booking page not found." }, { status: 404 });
+  }
   let username: string | undefined;
   if (body.username !== null && body.username !== undefined) {
-    const validatedUsername = normalizeSlug(body.username);
-    if (validatedUsername === null) return Response.json({ error: invalidSlugMessage }, { status: 400 });
-    if (isReservedUsername(validatedUsername)) return Response.json({ error: reservedUsernameMessage }, { status: 400 });
-    username = validatedUsername;
+    const normalized = normalizeSlug(body.username);
+    if (normalized === null || isReservedUsername(normalized)) {
+      return Response.json({ error: normalized === null ? invalidSlugMessage : reservedUsernameMessage }, { status: 400 });
+    }
+    username = normalized;
   }
 
-  const database = getDb();
-  await ensureSchedulingDefaults(session.user.id);
-  const existing = await getOrCreateEventType(session.user.id);
-  const event = validatedEvent.value;
-
-  if (event.slug !== existing.slug) {
-    const duplicateSlug = await database
-      .select({ id: eventType.id })
-      .from(eventType)
-      .where(and(eq(eventType.userId, session.user.id), eq(eventType.slug, event.slug)))
-      .limit(1);
-    if (duplicateSlug[0]) return Response.json({ error: "Choose a unique event URL." }, { status: 409 });
-  }
-
-  if (username !== undefined) {
-    const duplicateUsername = await database
-      .select({ id: user.id })
-      .from(user)
-      .where(and(eq(user.username, username), ne(user.id, session.user.id)))
-      .limit(1);
-    if (duplicateUsername[0]) return Response.json({ error: "That username is already taken." }, { status: 409 });
-  }
-
+  const hostId = session.user.id;
+  await ensureSchedulingDefaults(hostId);
   try {
-    const saved = await database.transaction(async (transaction) => {
-      const [updatedEvent] = await transaction
-        .update(eventType)
-        .set({ ...event, updatedAt: new Date() })
-        .where(eq(eventType.userId, session.user.id))
-        .returning();
-      if (!updatedEvent) return null;
-
-      if (username !== undefined) {
-        await transaction
-          .update(user)
-          .set({ username, updatedAt: new Date() })
-          .where(eq(user.id, session.user.id));
+    return await getDb().transaction(async (transaction) => {
+      const [owner] = await transaction.select({ username: user.username }).from(user)
+        .where(eq(user.id, hostId)).for("no key update");
+      if (!owner) return Response.json({ error: "Sign in to manage your booking pages." }, { status: 401 });
+      if (create) {
+        if (!owner.username) return Response.json({ error: "Set your public username on the default page first." }, { status: 409 });
+        const [page] = await transaction.insert(eventType).values({
+          ...validated.value, id: crypto.randomUUID(), userId: hostId,
+        }).returning();
+        return Response.json(page, { status: 201 });
       }
-      return updatedEvent;
+
+      const condition = and(eq(eventType.userId, hostId), id ? eq(eventType.id, id) : eq(eventType.isDefault, true));
+      const [existing] = await transaction.select().from(eventType).where(condition);
+      if (!existing) return Response.json({ error: "Booking page not found." }, { status: 404 });
+      if (!existing.isDefault && validated.value.slug !== existing.slug) {
+        return Response.json({ error: "The published URL ending stays fixed.", field: "slug" }, { status: 400 });
+      }
+      if (!existing.isDefault && username !== undefined) {
+        return Response.json({ error: "Edit the public username on the default page." }, { status: 400 });
+      }
+      if (username !== undefined && username !== owner.username) {
+        await transaction.update(user).set({ username, updatedAt: new Date() }).where(eq(user.id, hostId));
+      }
+      const [page] = await transaction.update(eventType).set(validated.value).where(condition).returning();
+      return Response.json({ ...page, username: username ?? owner.username });
     });
-    if (!saved) return Response.json({ error: "Event type not found." }, { status: 404 });
-    return Response.json({ ...saved, username });
   } catch (error) {
     if (isUniqueViolation(error, "event_type_userId_slug_unique")) {
-      return Response.json({ error: "Choose a unique event URL." }, { status: 409 });
+      return Response.json({ error: "Choose a unique event URL.", field: "slug" }, { status: 409 });
     }
     if (isUniqueViolation(error, "user_username_unique")) {
       return Response.json({ error: "That username is already taken." }, { status: 409 });
@@ -88,5 +75,6 @@ async function update(request: Request) {
   }
 }
 
-export const PATCH = update;
-export const PUT = update;
+export const POST = (request: Request) => save(request, true);
+export const PATCH = (request: Request) => save(request, false);
+export const PUT = PATCH;

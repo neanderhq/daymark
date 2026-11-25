@@ -188,7 +188,7 @@ export default async function BookingDetailsPage({
                   authorization={{ kind: "host", bookingId: bookingDetails.id }}
                   username={isOneOffBooking ? null : bookingDetails.username}
                   eventSlug={bookingDetails.eventSlug ?? ""}
-                  durationMinutes={bookingDetails.meetingDurationMinutes ?? bookingDetails.durationMinutes ?? Math.round((bookingDetails.endUtc.getTime() - bookingDetails.startUtc.getTime()) / 60000)}
+                  durationMinutes={Math.round((bookingDetails.endUtc.getTime() - bookingDetails.startUtc.getTime()) / 60000)}
                   timezone={hostTimezone}
                   timezones={[hostTimezone]}
                   horizonDays={bookingDetails.pollId ? null : rules.bookingHorizonDays}

@@ -17,10 +17,10 @@
     "db:down": "docker compose -p thicket-cedar-coral-dev -f compose.dev.yaml down",
     "db:seed": "node --env-file-if-exists=.env.local .neander/seed.mjs",
     "test": "node --test scripts/template.test.mjs",
-    "test:template": "node scripts/verify-template.mjs",
+    "test:template": "node scripts/verify-template.mjs && node scripts/test-milestone-browser.mjs",
     "test:policy": "python3 scripts/check_repository.py",
     "verify": "pnpm run check && pnpm run test && pnpm run test:policy && pnpm run build",
-    "test:production": "node scripts/verify-template.mjs"
+    "test:production": "node scripts/verify-template.mjs && node scripts/test-milestone-browser.mjs"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.21",

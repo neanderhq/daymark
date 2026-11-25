@@ -7,3 +7,5 @@ export function getDb() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
   return database ??= drizzle(new Pool({ connectionString: process.env.DATABASE_URL, options: "-c timezone=UTC", max: 5, connectionTimeoutMillis: 10000 }), { schema });
 }
+
+export type DbTransaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];

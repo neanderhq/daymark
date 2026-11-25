@@ -51,3 +51,17 @@ test('repeated time-zone lookups preserve local dates and daylight-saving rules'
     assert.equal(zonedWallTimeToUtc('2026-11-01', 90, 'America/New_York').toISOString(), '2026-11-01T05:30:00.000Z');
   }
 });
+
+test('calendar snapshots escape event fields and fold UTF-8 lines', async () => {
+  const { calendarFile } = await import('../server/calendar-file.ts');
+  const start = new Date('2026-12-14T15:00:00Z');
+  const result = calendarFile({
+    id: 'fictional-booking', start, end: new Date('2026-12-14T15:15:00Z'), stamp: start, revision: 2,
+    name: 'Research 👋 '.repeat(10), location: 'Room A, floor 2; entrance\\west\nDESCRIPTION:unexpected',
+  });
+  assert.ok(result.split('\r\n').every(line => Buffer.byteLength(line) <= 75));
+  assert.match(result, /UID:fictional-booking@daymark\r\n/);
+  assert.match(result, /DTEND:20261214T151500Z\r\nSEQUENCE:2\r\n/);
+  assert.ok(result.replaceAll('\r\n ', '').includes('LOCATION:Room A\\, floor 2\\; entrance\\\\west\\nDESCRIPTION:unexpected'));
+  assert.doesNotMatch(result, /\r\nDESCRIPTION:/);
+});
