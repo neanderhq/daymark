@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { availabilityDates, availabilityPayload } from '../server/calendar-availability.ts';
+import { getDateInTimezone, isIanaTimezone, zonedWallTimeToUtc } from '../server/timezone.ts';
 import { futureWeekday, seed } from '../.neander/seed.mjs';
 
 test('seed rejects missing configuration before contacting a database', async () => {
@@ -33,5 +34,20 @@ test('month availability preserves the individual date slot results', async () =
   for (const date of dates) {
     const day = await availabilityPayload([date], false, load);
     assert.deepEqual(month.days[date], day.slots);
+  }
+});
+
+test('repeated time-zone lookups preserve local dates and daylight-saving rules', () => {
+  assert.equal(isIanaTimezone('UTC'), true);
+  assert.equal(isIanaTimezone('America/New_York'), true);
+  assert.equal(isIanaTimezone('Asia/Kolkata'), true);
+  assert.equal(isIanaTimezone('Invalid/Zone'), false);
+  assert.equal(isIanaTimezone('+01:00'), false);
+  for (let i = 0; i < 2; i++) {
+    const instant = new Date('2026-12-14T00:00:00.000Z');
+    assert.equal(getDateInTimezone(instant, 'America/New_York'), '2026-12-13');
+    assert.equal(getDateInTimezone(instant, 'Asia/Kolkata'), '2026-12-14');
+    assert.equal(zonedWallTimeToUtc('2026-03-08', 150, 'America/New_York'), null);
+    assert.equal(zonedWallTimeToUtc('2026-11-01', 90, 'America/New_York').toISOString(), '2026-11-01T05:30:00.000Z');
   }
 });

@@ -1,10 +1,36 @@
 const ianaTimezones = new Set(Intl.supportedValuesOf("timeZone"));
+const zoneFormatters = new Map<string, { formatter: Intl.DateTimeFormat; isIana: boolean }>();
+const maxZoneFormatters = 64;
+
+function zoneFormatter(timezone: string) {
+  const cached = zoneFormatters.get(timezone);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const canonical = formatter.resolvedOptions().timeZone;
+  const entry = { formatter, isIana: canonical === "UTC" || ianaTimezones.has(canonical) };
+  // Month availability formats thousands of instants. Bound the cache because
+  // requests can supply time zone aliases and spelling variants.
+  if (zoneFormatters.size >= maxZoneFormatters) {
+    const oldest = zoneFormatters.keys().next();
+    if (!oldest.done) zoneFormatters.delete(oldest.value);
+  }
+  zoneFormatters.set(timezone, entry);
+  return entry;
+}
 
 export function isIanaTimezone(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 100) return false;
   try {
-    const canonicalTimezone = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
-    return canonicalTimezone === "UTC" || ianaTimezones.has(canonicalTimezone);
+    return zoneFormatter(value).isIana;
   } catch {
     return false;
   }
@@ -19,15 +45,7 @@ type ZonedWallTime = {
 };
 
 function readZonedWallTime(instant: Date, timezone: string): ZonedWallTime {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(instant);
+  const parts = zoneFormatter(timezone).formatter.formatToParts(instant);
   const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
 
   return {
