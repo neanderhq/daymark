@@ -209,6 +209,7 @@ try {
     await editor.goto(new URL('/dashboard/event-type', origin).href);
     await tabTo(editor, editor.getByRole('link', { name: 'New booking page' }));
     await editor.keyboard.press('Enter');
+    await expect(editor.getByRole('heading', { name: 'New booking page', exact: true })).toBeVisible();
     const eventName = editor.getByLabel('Event name');
     const slug = editor.getByLabel('Event URL ending');
     const location = editor.getByLabel('Location', { exact: true });
@@ -244,7 +245,13 @@ try {
     await guest.goto(url);
     const day = await dates(guest);
     await expect(day).toBeEnabled();
-    await tabTo(guest, day);
+    await tabTo(guest, guest.locator('[data-calendar-date][tabindex="0"]:enabled'));
+    for (let index = 0; index < 31 && !await day.evaluate(el => el === document.activeElement); index++) {
+      const focusedDate = await guest.locator('[data-calendar-date]:focus').getAttribute('data-calendar-date');
+      await guest.keyboard.press(focusedDate < date ? 'ArrowRight' : 'ArrowLeft');
+    }
+    await expect(day).toBeFocused();
+    await expect(day).toHaveCSS('outline-style', 'solid');
     await guest.keyboard.press('Enter');
     const slot = guest.getByRole('button', { name: 'Choose 10:00 AM', exact: true });
     await tabTo(guest, slot);
@@ -398,7 +405,7 @@ try {
     const existing = await data(await book(defaultEvent.slug, at(2, 11), 'calendar-existing'), 201);
     const changed = await visitor.post(`/api/public/bookings/${existing.confirmationToken}/reschedule`, { data: { startUtc: at(2, 10) } });
     assert.equal(changed.status(), 409);
-    assert.equal((await db.query('SELECT start_utc FROM booking WHERE id=$1', [existing.id])).rows[0].start_utc.toISOString(), at(2, 11));
+    assert.equal((await db.query("SELECT start_utc AT TIME ZONE 'UTC' AS start_utc FROM booking WHERE id=$1", [existing.id])).rows[0].start_utc.toISOString(), at(2, 11));
 
     const link = await data(await owner.post('/api/booking-links', {
       data: { kind: 'one_off', name: 'One-off review', durationMinutes: 30, proposedStarts: [at(3, 10), at(3, 11)] },
