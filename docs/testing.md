@@ -30,8 +30,16 @@ Contacts summaries. It completes real bookings at a measured 375px viewport and
 with only the keyboard, including required-field/email validation and focus.
 The test deletes its own host after the run. No reference-account actions occur.
 
+The milestone suite then exercises migration from the prior schema in an isolated
+database and starts the same built image with controlled Resend and Google OAuth
+and Calendar endpoints. It tests retry after a restart, provider request
+idempotency, read-only authorization, cross-owner access, busy-time conflicts
+at commit, outage recovery and 375px keyboard use. The provider fixtures use
+fictional data. No live Google or Resend credentials are needed.
+
 Screenshots and a per-check JSON report are written to `.cache/scorecard/` (ignored),
-or `DAYMARK_SCORECARD_EVIDENCE` when set. Those are evidence for the checked states,
+or `DAYMARK_SCORECARD_EVIDENCE` when set. The milestone suite uses
+`.cache/milestone/` or `DAYMARK_MILESTONE_EVIDENCE`. Those are evidence for the checked states,
 not a claim of complete Calendly feature parity or physical-device coverage.
 
 CI supplies only fictional credentials and an isolated local PostgreSQL service.

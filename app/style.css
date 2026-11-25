@@ -339,3 +339,5 @@ button:disabled { cursor: wait; opacity: .68; }
   justify-items: start;
 }
 .integration-settings h2, .integration-settings p { margin: 0; }
+
+.settings-content > .settings-card + .settings-card { margin-top: 1rem; }
