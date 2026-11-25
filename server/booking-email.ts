@@ -16,7 +16,7 @@ export async function queueBookingEmail(transaction: DbTransaction, bookingId: s
   const [record] = await transaction.select({
     recipient: booking.inviteeEmail, timezone: booking.inviteeTimezone, start: booking.startUtc, end: booking.endUtc,
     token: booking.confirmationToken, history: booking.rescheduleHistory, title: eventType.name,
-    pollTitle: poll.title, oneOffTitle: bookingLink.meetingName,
+    pollTitle: poll.title, pollToken: poll.token, oneOffTitle: bookingLink.meetingName,
   }).from(booking).leftJoin(eventType, eq(booking.eventTypeId, eventType.id))
     .leftJoin(bookingLink, eq(booking.bookingLinkId, bookingLink.id))
     .leftJoin(poll, eq(booking.pollId, poll.id)).where(eq(booking.id, bookingId));
@@ -24,7 +24,8 @@ export async function queueBookingEmail(transaction: DbTransaction, bookingId: s
   const id = crypto.randomUUID();
   const title = record.pollTitle ?? record.oneOffTitle ?? record.title ?? "Meeting";
   const origin = process.env.BETTER_AUTH_URL;
-  const receipt = origin ? new URL(`/booking/${record.token}`, origin).href : null;
+  const recipientPath = record.pollToken ? `/polls/${record.pollToken}` : `/booking/${record.token}`;
+  const receipt = origin ? new URL(recipientPath, origin).href : null;
   const revision = record.history.length + (kind === "cancelled" ? 1 : 0);
   await transaction.update(bookingEmail).set({ status: "superseded" }).where(and(
     eq(bookingEmail.bookingId, bookingId), eq(bookingEmail.status, "pending"),
@@ -38,7 +39,7 @@ export async function queueBookingEmail(transaction: DbTransaction, bookingId: s
       `${sendLabels[kind]}. ${title}`,
       `Starts: ${formatInstant(record.start, record.timezone)}`,
       `Ends: ${formatInstant(record.end, record.timezone)}`,
-      receipt ? `Open your current booking receipt: ${receipt}` : "",
+      receipt ? `${record.pollToken ? "View the poll result" : "Open your current booking receipt"}: ${receipt}` : "",
     ].join("\n"),
   });
   return id;

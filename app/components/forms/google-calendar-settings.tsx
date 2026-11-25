@@ -15,7 +15,6 @@ export function GoogleCalendarSettings({ configured, connected, reconnect, resul
     : reconnect ? "Reconnect Google Calendar before new bookings can be confirmed."
       : connected ? "Primary calendar connected for busy-time checks." : "Using manual availability.";
   const messages: Record<string, string> = {
-    connected: "Google Calendar connected.",
     denied: "Google access was declined. Your previous settings are still in use.",
     invalid: "This connection request expired or is no longer valid. Start again.",
     unavailable: "Google Calendar couldn’t be connected. Try again.",

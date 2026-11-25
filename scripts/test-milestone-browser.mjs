@@ -419,7 +419,10 @@ try {
     assert.equal((await owner.post(`/api/polls/${poll.id}/book`, { data: { startUtc: at(4, 9) } })).status(), 409);
     assert.equal((await db.query('SELECT status FROM poll WHERE id=$1', [poll.id])).rows[0].status, 'open');
     provider.state.busy = [];
-    await data(await owner.post(`/api/polls/${poll.id}/book`, { data: { startUtc: at(4, 9) } }), 201);
+    const finalized = await data(await owner.post(`/api/polls/${poll.id}/book`, { data: { startUtc: at(4, 9) } }), 201);
+    const resultMail = [...provider.state.deliveries.values()].find(({ payload }) => payload.subject === 'Booking confirmed: Planning window');
+    assert.ok(resultMail.payload.text.includes(`/polls/${poll.token}`));
+    assert.ok(!resultMail.payload.text.includes(finalized.confirmationToken));
   });
 
   await check('google-calendar-conflict-checks-access', async () => {

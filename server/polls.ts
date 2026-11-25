@@ -315,7 +315,7 @@ export async function getPublicPoll(token: string) {
   }
 
   const [bookingRecord] = await getDb()
-    .select({ startUtc: booking.startUtc })
+    .select({ startUtc: booking.startUtc, status: booking.status })
     .from(booking)
     .where(eq(booking.pollId, record.id))
     .limit(1);

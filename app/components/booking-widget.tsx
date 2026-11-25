@@ -175,6 +175,10 @@ export function BookingWidget({
           onBookingLinkUnavailable?.(result.error);
           return;
         }
+        if (response.status === 503 && result.error) {
+          setAvailabilityError(result.error);
+          return;
+        }
         if (!response.ok || !result.days) throw new Error();
         setDays(result.days);
         setLoadedKey(`${month}|${timezone}`);
