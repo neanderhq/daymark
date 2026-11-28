@@ -1,69 +1,69 @@
-import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { APIError, createAuthMiddleware } from "better-auth/api";
-import { betterAuth } from "better-auth";
+import { createHash } from "node:crypto";
+import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth as firebaseAuth } from "firebase-admin/auth";
+import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "./db";
-import { invalidEmailMessage, invalidNameMessage, invalidTimezoneMessage, normalizeEmail, normalizeUserName } from "./profile-validation";
-import { isIanaTimezone } from "./timezone";
+import { session, user } from "./schema";
 
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
+export function authConfiguration() {
+  const config = {
+    apiKey: process.env.NEANDER_AUTH_API_KEY,
+    authDomain: process.env.NEANDER_AUTH_DOMAIN,
+    projectId: process.env.NEANDER_AUTH_PROJECT_ID,
+    tenantId: process.env.NEANDER_AUTH_TENANT_ID,
+  };
+  if (Object.values(config).some(value => !value)) throw new Error("Managed sign-in is still being provisioned.");
+  let emulatorUrl: string | undefined;
+  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    const origin = new URL(process.env.DAYMARK_APP_URL!);
+    const emulator = new URL(process.env.DAYMARK_TEST_AUTH_EMULATOR_URL!);
+    if (origin.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(origin.hostname)
+      || emulator.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(emulator.hostname)) {
+      throw new Error("Auth emulators are limited to isolated loopback tests.");
+    }
+    emulatorUrl = emulator.origin;
+  }
+  return { ...config as { [K in keyof typeof config]: string }, emulatorUrl };
 }
 
-function createAuth() {
-  const baseURL = process.env.BETTER_AUTH_URL || "http://localhost:3000";
-  const trustedOrigins = process.env.BETTER_AUTH_URL
-    ? [new URL(baseURL).origin]
-    : ["http://localhost:3000", "http://127.0.0.1:3000"];
-
-  return betterAuth({
-    baseURL,
-    trustedOrigins,
-    secret: process.env.BETTER_AUTH_SECRET || (process.env.NODE_ENV !== "production" ? "local-only-daymark-fiddle-zephyr-secret-change-me" : required("BETTER_AUTH_SECRET")),
-    database: drizzleAdapter(getDb(), { provider: "pg" }),
-    emailAndPassword: { enabled: true, requireEmailVerification: false },
-    user: {
-      additionalFields: {
-        timezone: { type: "string", required: true, defaultValue: "UTC", input: true },
-        username: { type: "string", required: false, unique: true, input: false },
-      },
-    },
-    hooks: {
-      before: createAuthMiddleware(async (context) => {
-        const isSignUp = context.path === "/sign-up/email";
-        const isUserUpdate = context.path === "/update-user";
-        if (!isSignUp && !isUserUpdate) return;
-
-        const body = context.body as Record<string, unknown>;
-        if (isSignUp || Object.hasOwn(body, "name")) {
-          const name = normalizeUserName(body.name);
-          if (name === null) {
-            throw new APIError("BAD_REQUEST", { message: invalidNameMessage });
-          }
-          body.name = name;
-        }
-
-        if (isSignUp) {
-          const email = normalizeEmail(body.email);
-          if (email === null) {
-            throw new APIError("BAD_REQUEST", { message: invalidEmailMessage });
-          }
-          body.email = email;
-        }
-
-        if ((isSignUp || Object.hasOwn(body, "timezone")) && !isIanaTimezone(body.timezone)) {
-          throw new APIError("BAD_REQUEST", { message: invalidTimezoneMessage });
-        }
-      }),
-    },
-  });
+export function tenantAuth() {
+  const config = authConfiguration();
+  const app = getApps().find(app => app.name === "daymark") ?? initializeApp({
+    projectId: config.projectId, credential: applicationDefault(),
+  }, "daymark");
+  return firebaseAuth(app).tenantManager().authForTenant(config.tenantId);
 }
 
-export type Auth = ReturnType<typeof createAuth>;
-
-let auth: ReturnType<typeof createAuth> | undefined;
-
-export function getAuth() {
-  return (auth ??= createAuth());
+export function sessionCookieName() {
+  return "daymark." + authConfiguration().tenantId + ".session";
 }
+
+export function sessionCookie(headers: Headers) {
+  return (headers.get("cookie") ?? "").split(";").map(value => value.trim())
+    .find(value => value.startsWith(sessionCookieName() + "="))?.split("=").slice(1).join("=");
+}
+
+export function sessionId(cookie: string) {
+  return createHash("sha256").update(cookie).digest("hex");
+}
+
+async function getSession({ headers }: { headers: Headers }) {
+  if (!headers.get("cookie")) return null;
+  const cookie = sessionCookie(headers);
+  if (!cookie) return null;
+  try {
+    const identity = await tenantAuth().verifySessionCookie(cookie, true);
+    const [lease] = await getDb().select().from(session).where(and(eq(session.id, sessionId(cookie)), eq(session.userId, identity.uid), gt(session.expiresAt, new Date()))).limit(1);
+    if (!lease) return null;
+    const [profile] = await getDb().select().from(user).where(eq(user.id, identity.uid)).limit(1);
+    return profile ? { user: profile, session: lease } : null;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (["auth/argument-error", "auth/invalid-session-cookie", "auth/session-cookie-expired", "auth/session-cookie-revoked",
+      "auth/user-disabled", "auth/user-not-found", "auth/tenant-id-mismatch"].includes(code ?? "")) return null;
+    throw error;
+  }
+}
+
+// Existing pages and domain routes share this authoritative native session reader.
+export function getAuth() { return { api: { getSession } }; }

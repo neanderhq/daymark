@@ -1,7 +1,6 @@
 // Fictional starter data. Never run against a live customer database.
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { hashPassword } from 'better-auth/crypto';
 import { Client } from 'pg';
 
 export const DEMO_HOST_ID = 'template-calendly-maya';
@@ -14,9 +13,8 @@ export function futureWeekday(days = 2, now = new Date()) {
   return value;
 }
 
-export async function seed({ databaseUrl, password }) {
+export async function seed({ databaseUrl }) {
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
-  if (!password || password.length < 12) throw new Error('DEMO_HOST_PASSWORD must contain at least 12 characters');
   const client = new Client({ connectionString: databaseUrl, options: '-c timezone=UTC', connectionTimeoutMillis: 10000, statement_timeout: 30000 });
   await client.connect();
   try {
@@ -28,9 +26,7 @@ export async function seed({ databaseUrl, password }) {
       await client.query('COMMIT');
       return { created: false };
     }
-    const passwordHash = await hashPassword(password);
     await client.query('INSERT INTO "user" (id,name,email,email_verified,timezone,username) VALUES ($1,$2,$3,true,$4,$5)', [DEMO_HOST_ID, 'Maya Chen', DEMO_EMAIL, 'UTC', 'maya-chen']);
-    await client.query('INSERT INTO account (id,account_id,provider_id,user_id,password,created_at,updated_at) VALUES ($1,$2,$3,$2,$4,NOW(),NOW())', ['template-calendly-credential', DEMO_HOST_ID, 'credential', passwordHash]);
     await client.query('INSERT INTO event_type (id,user_id,name,description,duration_minutes,location,slug,is_default) VALUES ($1,$2,$3,$4,30,$5,$6,true)', ['template-calendly-event', DEMO_HOST_ID, 'Discovery call', 'A friendly introduction to your project and what we can build together.', 'Video call — details shared after booking', 'discovery-call']);
     await client.query('INSERT INTO booking_question (id,user_id,label,question_type,required,position) VALUES ($1,$2,$3,$4,false,0)', ['template-calendly-question', DEMO_HOST_ID, 'What would you like to discuss?', 'long_text']);
     for (let weekday = 1; weekday <= 5; weekday++) {
@@ -64,6 +60,6 @@ export async function seed({ databaseUrl, password }) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const result = await seed({ databaseUrl: process.env.DATABASE_URL, password: process.env.DEMO_HOST_PASSWORD });
+  const result = await seed({ databaseUrl: process.env.DATABASE_URL });
   console.log(result.created ? 'Fictional scheduling workspace initialized.' : 'Scheduling workspace already initialized; existing data preserved.');
 }

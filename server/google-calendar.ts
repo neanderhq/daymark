@@ -24,12 +24,12 @@ export function calendarErrorResponse(error: unknown): Response | null {
 }
 
 function configuration() {
-  const { DAYMARK_GOOGLE_CLIENT_ID: clientId, DAYMARK_GOOGLE_CLIENT_SECRET: clientSecret, BETTER_AUTH_URL: origin, BETTER_AUTH_SECRET: secret } = process.env;
+  const { DAYMARK_GOOGLE_CLIENT_ID: clientId, DAYMARK_GOOGLE_CLIENT_SECRET: clientSecret, DAYMARK_APP_URL: origin, DAYMARK_APP_SECRET: secret } = process.env;
   return clientId && clientSecret && origin && secret ? { clientId, clientSecret, redirectUri: new URL(callbackPath, origin).href } : null;
 }
 
 function encryptionKey() {
-  return createHmac("sha256", process.env.BETTER_AUTH_SECRET!).update("daymark/google-calendar/v1").digest();
+  return createHmac("sha256", process.env.DAYMARK_APP_SECRET!).update("daymark/google-calendar/v1").digest();
 }
 
 function seal(hostId: string, value: string) {

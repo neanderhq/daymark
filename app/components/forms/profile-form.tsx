@@ -40,7 +40,7 @@ export function ProfileForm({ profile }: { profile: { name: string; email: strin
   return (
     <form className="form-stack profile-form" onSubmit={submit}>
       <Input name="name" label="Your name" autoComplete="name" maxLength={80} defaultValue={profile.name} required />
-      <Input name="email" label="Email address" type="email" autoComplete="email" maxLength={254} defaultValue={profile.email} required />
+      <Input name="email" label="Email address" type="email" autoComplete="email" maxLength={254} defaultValue={profile.email} readOnly hint="This is your managed sign-in address." required />
       <Input name="timezone" label="Time zone" autoComplete="off" defaultValue={profile.timezone} required hint="Use an IANA name, such as America/La_Paz." />
       {error && <ErrorField>{error}</ErrorField>}
       {saved && <p className="success-message" role="status">Your profile is up to date.</p>}

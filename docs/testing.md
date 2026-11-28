@@ -19,7 +19,7 @@ TypeScript is the existing static gate; this migration does not introduce a new 
 ## Production smoke coverage
 
 Host login, scheduling pages, public bookings/conflicts, seed retries, preserved
-edits/deletions/passwords and restart persistence.
+edits/deletions/native identities and restart persistence.
 
 The same built-image suite also runs `scripts/test-scorecard-browser.mjs` against
 its local server and disposable PostgreSQL database. It creates a fictional host,
@@ -31,18 +31,23 @@ with only the keyboard, including required-field/email validation and focus.
 The test deletes its own host after the run. No reference-account actions occur.
 
 The milestone suite then exercises migration from the prior schema in an isolated
-database and starts the same built image with controlled Resend and Google OAuth
-and Calendar endpoints. It tests retry after a restart, provider request
-idempotency, read-only authorization, cross-owner access, busy-time conflicts
-at commit, outage recovery and 375px keyboard use. The provider fixtures use
-fictional data. No live Google or Resend credentials are needed.
+database and starts the same built image with the official Firebase Auth emulator
+and native SES/Scheduler request fixtures. It checks session exchange, logout,
+booking email delivery state, stable reminder creation/rescheduling/cancellation,
+and an accepted email whose reply is lost through an owned Toxiproxy instance.
+An ambiguous SES send stays unknown and is not automatically resent. Existing
+optional Google Calendar authorization, cross-owner access, busy-time conflicts,
+outage recovery and 375px keyboard checks remain. All fixtures are fictional;
+these tests need Docker and no live cloud credentials.
 
 Screenshots and a per-check JSON report are written to `.cache/scorecard/` (ignored),
 or `DAYMARK_SCORECARD_EVIDENCE` when set. The milestone suite uses
 `.cache/milestone/` or `DAYMARK_MILESTONE_EVIDENCE`. Those are evidence for the checked states,
 not a claim of complete Calendly feature parity or physical-device coverage.
 
-CI supplies only fictional credentials and an isolated local PostgreSQL service.
+CI starts the pinned official Auth emulator, an owned Toxiproxy container and an
+isolated local PostgreSQL service. Missing transport tooling is a setup failure;
+the tests do not silently substitute fake outages.
 `DATABASE_URL` and `NEANDER_TEMPLATE_TEST_DATABASE_URL` must identify the same
 explicitly disposable database. Build the image and apply the existing recipe's
 migration/seed commands before invoking the smoke suite. `.github/workflows/check.yml`
@@ -53,5 +58,5 @@ Never copy these commands onto an existing customer database.
 Passing this CI establishes the assertions in the existing suites, not complete
 product acceptance, physical-device/mobile coverage, managed Neon/Cloud Run
 deployment, real email delivery or the desktop Neander Publish path. Keep the
-README's product-specific limitations. Add regression tests for behavior changes;
+README's product-specific limitations and the [coverage mapping](native-service-test-mapping.md). Add regression tests for behavior changes;
 do not replace real app checks with boilerplate-only assertions.

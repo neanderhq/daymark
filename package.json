@@ -23,10 +23,13 @@
     "test:production": "node scripts/verify-template.mjs && node scripts/test-milestone-browser.mjs"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "1.7.21",
+    "@aws-sdk/client-scheduler": "3.1175.0",
+    "@aws-sdk/client-sesv2": "3.1175.0",
+    "@google-cloud/storage": "9.0.0",
     "@next/env": "16.4.6",
-    "better-auth": "1.7.21",
     "drizzle-orm": "0.45.2",
+    "firebase": "13.4.0",
+    "firebase-admin": "14.5.1",
     "next": "16.4.6",
     "pg": "8.23.0",
     "react": "19.2.8",
@@ -38,8 +41,8 @@
     "@types/pg": "8.23.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
-    "auth": "1.7.21",
     "drizzle-kit": "0.31.10",
+    "firebase-tools": "15.37.0",
     "typescript": "7.0.2"
   },
   "license": "MIT"

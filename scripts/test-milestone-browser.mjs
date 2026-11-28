@@ -11,9 +11,10 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 import { controlledProviders } from './test-milestone-providers.mjs';
+import { startAuthEmulator, nativeLogin } from './test-native-auth.mjs';
 
 const exec = promisify(execFile);
-const origin = new URL(process.env.BETTER_AUTH_URL);
+const origin = new URL(process.env.DAYMARK_APP_URL);
 const image = process.env.NEANDER_TEMPLATE_IMAGE;
 const databaseUrl = process.env.NEANDER_TEMPLATE_TEST_DATABASE_URL;
 assert.ok(image);
@@ -52,7 +53,7 @@ const longEvent = { name: 'Project consultation', slug: 'project-consult', durat
 const input = (slug, startUtc, label) => ({ username, eventSlug: slug, startUtc, timezone: 'UTC', name: 'Morgan Ellis', email: email(label), answers: [] });
 const originHeader = { origin: origin.origin };
 
-let browser, owner, other, visitor;
+let browser, owner, other, visitor, authFixture;
 let running = false;
 
 async function data(response, status = 200) {
@@ -81,9 +82,7 @@ async function restart() {
 
 async function ownerSession(label) {
   const context = await request.newContext({ baseURL: origin.origin, extraHTTPHeaders: originHeader });
-  const { user } = await data(await context.post('/api/auth/sign-up/email', {
-    data: { name: 'Taylor Morgan', email: email(label), password: `Fictional-${randomUUID()}`, timezone: 'UTC' },
-  }));
+  const { user } = await nativeLogin(context, origin.origin, {name:'Taylor Morgan',email:email(label),password:'Fictional-'+randomUUID(),timezone:'UTC'}, true);
   hosts.push(user.id);
   await context.get('/dashboard');
   return { context, id: user.id };
@@ -171,11 +170,15 @@ try {
   await check('historical-migration', historicalMigration);
   const runtimeDb = new URL(databaseUrl);
   if (process.platform === 'darwin') runtimeDb.hostname = 'host.docker.internal';
+  authFixture = await startAuthEmulator();
   const env = {
-    DATABASE_URL: runtimeDb.href, BETTER_AUTH_URL: origin.origin, BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    ...authFixture.runtimeEnvironment,
+    DATABASE_URL: runtimeDb.href, DAYMARK_APP_URL: origin.origin, DAYMARK_APP_SECRET: process.env.DAYMARK_APP_SECRET,
     PORT: process.platform === 'linux' ? origin.port : '8080',
-    DAYMARK_TEST_PROVIDER_ORIGIN: provider.origin, DAYMARK_RESEND_API_KEY: 'fictional-resend',
-    DAYMARK_EMAIL_FROM: 'daymark@example.invalid', DAYMARK_GOOGLE_CLIENT_ID: 'fictional-google-client',
+    DAYMARK_TEST_PROVIDER_ORIGIN: provider.origin, DAYMARK_TEST_SES_ORIGIN:provider.mailOrigin, AWS_REGION:'ap-south-1', AWS_ACCESS_KEY_ID:'fixture-daymark', AWS_SECRET_ACCESS_KEY:'fictional-test-secret-only',
+    NEANDER_EMAIL_FROM:'daymark@example.invalid', AWS_SES_CONFIGURATION_SET:'fixture-config', DAYMARK_GOOGLE_CLIENT_ID: 'fictional-google-client',
+    AWS_SCHEDULER_GROUP:'fixture-schedules', AWS_SCHEDULER_EXECUTION_ROLE_ARN:'arn:aws:iam::123456789012:role/fixture-execution',
+    DAYMARK_REMINDER_FUNCTION_ARN:'arn:aws:lambda:ap-south-1:123456789012:function:fixture-reminder',
     DAYMARK_GOOGLE_CLIENT_SECRET: 'fictional-google-secret',
   };
   const envFile = join(directory, 'runtime.env');
@@ -301,7 +304,7 @@ try {
   let emailed;
   const delivery = async () => (await db.query('SELECT * FROM booking_email WHERE booking_id=$1 ORDER BY revision', [emailed.id])).rows;
   await check('booking-emails-calendar-download', async () => {
-    provider.state.mail = 'ambiguous';
+    provider.state.mail = 'rate-limited';
     emailed = await data(await visitor.post('/api/public/bookings', {
       data: { ...input(defaultEvent.slug, at(1, 9), 'mail'), timezone: 'America/New_York' },
     }), 201);
@@ -328,7 +331,7 @@ try {
     assert.equal((await delivery())[0].status, 'accepted');
     const records = provider.state.attempts.filter(({ payload }) => payload.to[0] === email('mail'));
     assert.equal(records.length, 2);
-    assert.equal(records[0].key, records[1].key);
+    assert.notEqual(records[0].key, records[1].key, 'Only a rejected rate-limited request is eligible for a new send');
     assert.match(records[0].payload.text, /4:00 AM.*America\/New_York/);
     assert.ok(records[0].payload.text.includes(receipt));
     assert.equal([...provider.state.deliveries.values()].filter(({ payload }) => payload.to[0] === email('mail')).length, 1);
@@ -341,6 +344,35 @@ try {
     await desktop.goto(receipt);
     await expect(desktop.getByText(/email service accepted/i)).toBeVisible();
     await capture(desktop, 'receipt-calendar-desktop');
+  });
+
+  await check('native-scheduler-create-reschedule-cancel', async () => {
+    const created=await data(await book(defaultEvent.slug,at(3,14),'scheduled-proof'),201);
+    const stored=async()=>(await db.query('SELECT * FROM booking_reminder WHERE booking_id=$1',[created.id])).rows[0];
+    const first=await stored();assert.equal(first.status,'scheduled');
+    const schedule=provider.state.schedules.get(first.schedule_name);assert.ok(schedule);
+    assert.equal(schedule.ScheduleExpression,'at('+new Date(Date.parse(at(3,14))-5*60_000).toISOString().slice(0,19)+')');
+    const payload=JSON.parse(schedule.Target.Input);assert.equal(payload.recipient,email('scheduled-proof'));assert.equal(payload.token,created.confirmationToken);
+    await data(await visitor.post('/api/public/bookings/'+created.confirmationToken+'/reschedule',{data:{startUtc:at(3,15)}}));
+    const changed=await stored();assert.equal(changed.schedule_name,first.schedule_name);assert.equal(changed.revision,1);
+    assert.equal(JSON.parse(provider.state.schedules.get(first.schedule_name).Target.Input).startsAt,at(3,15));
+    assert.equal(provider.state.scheduleCalls.filter(call=>call.name===first.schedule_name).at(-1).method,'PUT');
+    await data(await visitor.post('/api/public/bookings/'+created.confirmationToken+'/cancel',{data:{}}));
+    assert.equal((await stored()).status,'cancelled');assert.equal(provider.state.schedules.has(first.schedule_name),false);
+  });
+
+  await check('unknown-native-email-is-not-resent', async () => {
+    await provider.loseMailReplies();
+    let unknown;
+    try { unknown=await data(await book(defaultEvent.slug,at(2,9),'unknown-mail'),201); }
+    finally { await provider.restoreMail(); }
+    const state=()=>db.query('SELECT status FROM booking_email WHERE booking_id=$1',[unknown.id]);
+    assert.equal((await state()).rows[0].status,'unknown');
+    const count=()=>[...provider.state.deliveries.values()].filter(({payload})=>payload.to[0]===email('unknown-mail')).length;
+    assert.equal(count(),1,'Real SES fixture accepted the request whose reply Toxiproxy cut');
+    await restart();
+    await owner.post('/api/settings/booking-emails');
+    assert.equal((await state()).rows[0].status,'unknown');assert.equal(count(),1,'Unknown SES outcome must not be resent');
   });
 
   await check('booking-emails-calendar-download-access', async () => {
@@ -446,13 +478,18 @@ try {
     await guest.keyboard.press('Enter');
     await expect(retry).toHaveCount(0);
 
+    // Finish the UI's month/day requests before testing one explicit token refresh.
+    await guest.waitForLoadState('networkidle');
+    await guest.goto('about:blank');
+    const refreshed = provider.state.refreshed;
+
     await db.query("UPDATE google_calendar_connection SET access_expires_at=NOW()-interval '5 minutes' WHERE host_id=$1", [host.id]);
     assert.equal((await availability(defaultEvent.slug)).status(), 200);
-    assert.equal(provider.state.refreshed, 1);
+    assert.equal(provider.state.refreshed, refreshed + 1);
     provider.state.revoked = true;
     await db.query("UPDATE google_calendar_connection SET access_expires_at=NOW()-interval '5 minutes' WHERE host_id=$1", [host.id]);
     assert.equal((await availability(defaultEvent.slug)).status(), 503);
-    assert.equal(provider.state.refreshed, 2);
+    assert.equal(provider.state.refreshed, refreshed + 2);
     await editor.goto(`${origin.origin}/settings`);
     await expect(editor.getByText(/Reconnect Google Calendar before new bookings/i)).toBeVisible();
     const reconnect = editor.getByRole('button', { name: 'Reconnect Google Calendar' });
@@ -487,6 +524,7 @@ try {
   await db.end();
   if (browser) await browser.close();
   if (running) await exec('docker', ['rm', '--force', name]).catch(() => {});
-  provider.close();
+  await provider.close();
+  await authFixture?.close();
   await rm(directory, { recursive: true, force: true });
 }

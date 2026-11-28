@@ -5,9 +5,7 @@ import { getDateInTimezone, isIanaTimezone, zonedWallTimeToUtc } from '../server
 import { futureWeekday, seed } from '../.neander/seed.mjs';
 
 test('seed rejects missing configuration before contacting a database', async () => {
-  await assert.rejects(seed({ password: 'valid-test-secret' }), /DATABASE_URL/);
-  await assert.rejects(seed({ databaseUrl: 'postgresql://invalid.invalid/test' }), /DEMO_HOST_PASSWORD/);
-  await assert.rejects(seed({ databaseUrl: 'postgresql://invalid.invalid/test', password: 'short' }), /at least 12/);
+  await assert.rejects(seed({}), /DATABASE_URL/);
 });
 
 test('sample meetings use UTC workdays across weekends and year boundaries', () => {
@@ -64,4 +62,23 @@ test('calendar snapshots escape event fields and fold UTF-8 lines', async () => 
   assert.match(result, /DTEND:20261214T151500Z\r\nSEQUENCE:2\r\n/);
   assert.ok(result.replaceAll('\r\n ', '').includes('LOCATION:Room A\\, floor 2\\; entrance\\\\west\\nDESCRIPTION:unexpected'));
   assert.doesNotMatch(result, /\r\nDESCRIPTION:/);
+});
+
+
+test('profile photos reject active HTML/SVG and accept supported image signatures', async () => {
+  const {photoContentType}=await import('../server/profile-photo.ts');
+  assert.equal(photoContentType(Buffer.from('<svg onload="alert(1)"></svg>')),null);
+  assert.equal(photoContentType(Buffer.from('<html>not an image</html>')),null);
+  assert.equal(photoContentType(Buffer.from([137,80,78,71,13,10,26,10])), 'image/png');
+});
+
+test('reminder handler uses bound origin and sender, not event-supplied URLs', async () => {
+  const {reminderEmail}=await import('../lambda/booking-reminder.mjs');
+  const event={bookingId:'fixture',token:'a'.repeat(32),recipient:'guest@example.invalid',title:'Planning call',startsAt:'2030-01-01T10:00:00Z',url:'https://attacker.invalid'};
+  const env={DAYMARK_APP_URL:'https://app.example.invalid',NEANDER_EMAIL_FROM:'owned@apps.example.invalid',AWS_SES_CONFIGURATION_SET:'owned-config'};
+  const result=reminderEmail(event,env);
+  assert.equal(result.FromEmailAddress,env.NEANDER_EMAIL_FROM);assert.equal(result.ConfigurationSetName,env.AWS_SES_CONFIGURATION_SET);
+  assert.ok(result.Content.Simple.Body.Text.Data.includes('https://app.example.invalid/booking/'+event.token));
+  assert.ok(!result.Content.Simple.Body.Text.Data.includes('attacker.invalid'));
+  assert.throws(()=>reminderEmail({...event,token:'../other-user'},env),/Invalid booking/);
 });

@@ -11,6 +11,18 @@ secrets:
   neander_environment:
     file: /run/neander/secrets/neander_environment
 x-neander:
+  contract_version: 2
+  managed_services:
+    web: [auth, storage, email, scheduling]
+  functions:
+    booking-reminder:
+      source: lambda
+      runtime: nodejs22.x
+      handler: booking-reminder.handler
+      managed_services: [email]
+      environment:
+        DAYMARK_APP_URL:
+          binding: public_origin
   ingress:
     service: web
     port: 8080
@@ -22,43 +34,24 @@ x-neander:
       source: provisioned
       provider: Neon
     - service: web
-      name: BETTER_AUTH_URL
+      name: DAYMARK_APP_URL
       required: true
       source: provisioned
       provider: Neander
       binding: public_origin
     - service: web
-      name: BETTER_AUTH_SECRET
+      name: DAYMARK_APP_SECRET
       required: true
       source: generated
       provider: null
       generator: opaque-random
     - service: web
-      name: DEMO_HOST_PASSWORD
+      name: DAYMARK_REMINDER_FUNCTION_ARN
       required: true
-      source: generated
-      provider: null
-      generator: opaque-random
-    - service: web
-      name: DAYMARK_RESEND_API_KEY
-      required: false
-      source: user
-      provider: null
-    - service: web
-      name: DAYMARK_EMAIL_FROM
-      required: false
-      source: user
-      provider: null
-    - service: web
-      name: DAYMARK_GOOGLE_CLIENT_ID
-      required: false
-      source: user
-      provider: null
-    - service: web
-      name: DAYMARK_GOOGLE_CLIENT_SECRET
-      required: false
-      source: user
-      provider: null
+      source: provisioned
+      provider: Neander
+      binding: function_arn
+      resource: booking-reminder
   probes:
     - path: /api/health
       success_status_range: 2xx

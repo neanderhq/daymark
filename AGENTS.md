@@ -4,15 +4,19 @@
 - Use feature branches and PRs. Preserve CI and maintainer review requirements.
 - Run `pnpm verify` and relevant production/integration tests for code changes.
 - Keep credentials in ignored environment files, never source, logs or evidence.
+- This clone targets Neander exclusively. Use the supported native managed
+  services and `.neander/compose.yaml`; do not preserve standalone provider
+  alternatives or ask app builders for cloud credentials. Isolated emulator
+  and database fixtures are for verification only.
 - Keep `.neander/compose.yaml`, committed migrations and runtime requirements in
   sync. Preserve the public health route, existing template IDs and MIT license.
 - Use isolated PostgreSQL databases and fictional identities/documents for tests.
   Never seed, reset or run verification against a customer workspace/database.
 - Scope local Docker Compose commands with an explicit unique `-p` and `-f`;
   preserve existing development files, volumes and data.
-- Generate Better Auth tables with the pinned `auth` CLI, then generate/commit
-  Drizzle SQL migrations. Do not hand-author auth tables or use `auth migrate`
-  with the Drizzle adapter. Apply migrations before `.neander/check-auth.mjs`.
+- Authentication uses Identity Platform/Firebase native SDKs. Keep existing
+  database migrations and user/session metadata; generate application schema
+  changes through Drizzle and run the native auth regression suite.
 - Keep existing deployment provider requirements (`provider: null` where required)
   and the recipe validation fast path; do not add generic Neon-hostname restrictions.
 - Report local/CI checks separately from managed Neon, Cloud Run and desktop

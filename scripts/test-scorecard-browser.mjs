@@ -5,8 +5,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium, expect, request } from '@playwright/test';
 import { Client } from 'pg';
+import { nativeLogin } from './test-native-auth.mjs';
 
-const origin = process.env.BETTER_AUTH_URL;
+const origin = process.env.DAYMARK_APP_URL;
 assert.ok(origin && ['127.0.0.1', 'localhost'].includes(new URL(origin).hostname));
 assert.equal(process.env.DATABASE_URL, process.env.NEANDER_TEMPLATE_TEST_DATABASE_URL);
 const directory = resolve(process.env.DAYMARK_SCORECARD_EVIDENCE || '.cache/scorecard');
@@ -76,7 +77,7 @@ async function chooseDate(page, d = date) {
 }
 
 try {
-  const signup = await json(await owner.post('/api/auth/sign-up/email', { data: { name: 'Taylor Morgan', email, password, timezone: 'UTC' } }));
+  const signup = await nativeLogin(owner, origin, {name:'Taylor Morgan',email,password,timezone:'UTC'}, true);
   hostId = signup.user.id;
   await owner.get('/dashboard'); // Normal provisioning of the host's scheduling defaults.
   await json(await owner.patch('/api/event-type', { data: { name: 'Discovery call', description: 'A fictional project conversation.',

@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { mailTransport } from './test-provider-transport.mjs';
 
 const scope = 'https://www.googleapis.com/auth/calendar.freebusy';
 
 export async function controlledProviders() {
   const state = {
     mail: 'ok', calendar: 'ok', revoked: false, busy: [], deliveries: new Map(), attempts: [], busyRequests: [],
-    exchanged: 0, refreshed: 0,
+    exchanged: 0, refreshed: 0, schedules:new Map(), scheduleCalls:[],
   };
   const codes = new Map();
   const server = createServer(async (request, response) => {
@@ -19,22 +20,41 @@ export async function controlledProviders() {
     try {
       let raw = '';
       for await (const chunk of request) raw += chunk;
-      if (request.url === '/resend/emails') {
-        assert.equal(request.headers.authorization, 'Bearer fictional-resend');
-        const key = request.headers['idempotency-key'];
-        assert.match(key, /^daymark\/[0-9a-f-]+$/);
-        const payload = JSON.parse(raw);
-        state.attempts.push({ key, payload });
-        const existing = state.deliveries.get(key);
-        if (existing) {
-          assert.deepEqual(existing.payload, payload);
-          return send(200, { id: existing.id });
+      if (request.url === '/fixture-probe') return send(200, {ok:true});
+      const path=new URL(request.url,'http://fixture.invalid');
+      if(path.pathname.startsWith('/scheduler/schedules/')){
+        assert.match(request.headers.authorization,/^AWS4-HMAC-SHA256 /);
+        const name=decodeURIComponent(path.pathname.split('/').at(-1));
+        assert.match(name,/^daymark-[0-9a-f]{48}$/);
+        const body=raw?JSON.parse(raw):{};
+        assert.equal(body.GroupName??path.searchParams.get('groupName'),'fixture-schedules');
+        state.scheduleCalls.push({method:request.method,name,body});
+        if(request.method==='DELETE'){
+          if(!state.schedules.delete(name))return send(404,{__type:'ResourceNotFoundException'});
+          return send(200,{});
         }
+        assert.equal(body.Target.Arn,'arn:aws:lambda:ap-south-1:123456789012:function:fixture-reminder');
+        assert.equal(body.Target.RoleArn,'arn:aws:iam::123456789012:role/fixture-execution');
+        assert.equal(body.ActionAfterCompletion,'DELETE');
+        assert.deepEqual(body.FlexibleTimeWindow,{Mode:'OFF'});
+        if(request.method==='POST'&&state.schedules.has(name))return send(409,{__type:'ConflictException'});
+        state.schedules.set(name,body);
+        return send(200,{ScheduleArn:'arn:aws:scheduler:ap-south-1:123456789012:schedule/fixture-schedules/'+name});
+      }
+      if (request.url === '/ses/v2/email/outbound-emails') {
+        assert.match(request.headers.authorization, /^AWS4-HMAC-SHA256 /);
+        assert.equal(request.headers['idempotency-key'], undefined);
+        const native=JSON.parse(raw);
+        assert.equal(native.FromEmailAddress,'daymark@example.invalid');
+        assert.equal(native.ConfigurationSetName,'fixture-config');
+        const payload={from:native.FromEmailAddress,to:native.Destination.ToAddresses,subject:native.Content.Simple.Subject.Data,text:native.Content.Simple.Body.Text.Data};
+        const key=randomUUID();
+        state.attempts.push({ key, payload });
+        if (state.mail === 'rate-limited') return send(429, {__type:'TooManyRequestsException',message:'Fictional rate limit'});
         if (state.mail === 'unavailable') return send(503, {});
         const id = randomUUID();
         state.deliveries.set(key, { id, payload });
-        if (state.mail === 'ambiguous') return response.destroy();
-        return send(200, { id });
+        return send(200, { MessageId:id });
       }
       if (request.url === '/google/token') {
         const body = new URLSearchParams(raw);
@@ -70,11 +90,17 @@ export async function controlledProviders() {
       send(500, {});
     }
   });
-  server.listen(0, '127.0.0.1');
+  server.listen(0, process.platform === 'linux' ? '0.0.0.0' : '127.0.0.1');
   await once(server, 'listening');
+  let transport;
+  try { transport=await mailTransport(server.address().port); }
+  catch(error){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));throw error;}
   return {
     state,
     origin: `http://${process.platform === 'darwin' ? 'host.docker.internal' : '127.0.0.1'}:${server.address().port}`,
+    mailOrigin:transport.appOrigin,
+    loseMailReplies:()=>transport.loseReplies(),
+    restoreMail:()=>transport.restore(),
     issueCode(authorization) {
       assert.equal(authorization.pathname, '/google/authorize');
       assert.equal(authorization.searchParams.get('scope'), scope);
@@ -84,6 +110,6 @@ export async function controlledProviders() {
       codes.set(code, { redirectUri: authorization.searchParams.get('redirect_uri'), challenge: authorization.searchParams.get('code_challenge') });
       return code;
     },
-    close() { server.close(); },
+    async close() { await transport.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve)); },
   };
 }

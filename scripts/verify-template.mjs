@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 import { Client } from 'pg';
 import { DEMO_EMAIL, DEMO_HOST_ID, futureWeekday, seed } from '../.neander/seed.mjs';
+import { startAuthEmulator, nativeLogin } from './test-native-auth.mjs';
 
 const exec = promisify(execFile);
 const image = process.env.NEANDER_TEMPLATE_IMAGE;
@@ -17,10 +18,11 @@ const databaseUrl = process.env.NEANDER_TEMPLATE_TEST_DATABASE_URL;
 assert.ok(image, 'NEANDER_TEMPLATE_IMAGE must identify the built image');
 assert.ok(databaseUrl, 'An explicitly disposable NEANDER_TEMPLATE_TEST_DATABASE_URL is required');
 assert.equal(process.env.DATABASE_URL, databaseUrl, 'Refusing to verify a different database');
-const origin = new URL(process.env.BETTER_AUTH_URL);
+const origin = new URL(process.env.DAYMARK_APP_URL);
 assert.ok(['127.0.0.1', 'localhost'].includes(origin.hostname), 'Only local verification origins are allowed');
 assert.equal(origin.protocol, 'http:');
-const password = process.env.DEMO_HOST_PASSWORD;
+const password = 'Fixture-only-' + randomUUID();
+let authFixture;
 const name = `calendly-template-check-${randomUUID().slice(0, 12)}`;
 const directory = await mkdtemp(join(tmpdir(), 'calendly-template-'));
 const environmentPath = join(directory, 'environment');
@@ -28,11 +30,11 @@ const runtimeDatabase = new URL(databaseUrl);
 if (process.platform === 'darwin' && ['127.0.0.1', 'localhost'].includes(runtimeDatabase.hostname)) runtimeDatabase.hostname = 'host.docker.internal';
 const environment = {
   DATABASE_URL: runtimeDatabase.href,
-  BETTER_AUTH_URL: origin.origin,
-  BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+  DAYMARK_APP_URL: origin.origin,
+  DAYMARK_APP_SECRET: process.env.DAYMARK_APP_SECRET,
   PORT: process.platform === 'linux' ? origin.port || '80' : '8080',
 };
-await writeFile(environmentPath, Object.entries(environment).map(([key, value]) => `${key}=${value}`).join('\n') + '\n', { mode: 0o600 });
+
 let browser;
 const db = new Client({ connectionString: databaseUrl });
 let connected = false;
@@ -49,14 +51,17 @@ async function json(response, status = 200) {
 }
 
 try {
+  authFixture = await startAuthEmulator();
+  Object.assign(environment, authFixture.runtimeEnvironment);
+  await authFixture.auth.createUser({ uid: DEMO_HOST_ID, email: DEMO_EMAIL, password, emailVerified: true });
+  await writeFile(environmentPath, Object.entries(environment).map(([key, value]) => `${key}=${value}`).join('\n') + '\n', {mode:0o600});
   const networking = process.platform === 'linux' ? ['--network', 'host'] : ['--publish', `127.0.0.1:${origin.port || 80}:8080`];
   await exec('docker', ['run', '--detach', '--name', name, '--env-file', environmentPath, ...networking, image], { timeout: 60000 });
   await ready();
   await exec('python3', ['scripts/test_entrypoint.py'], { timeout: 60000 });
   await exec('python3', ['scripts/smoke.py', origin.origin], { timeout: 60000 });
   await db.connect(); connected = true;
-  const before = (await db.query('SELECT password FROM account WHERE user_id=$1', [DEMO_HOST_ID])).rows[0].password;
-  assert.deepEqual(await seed({ databaseUrl, password }), { created: false });
+  assert.deepEqual(await seed({ databaseUrl }), { created: false });
   assert.equal((await db.query('SELECT count(*)::int AS count FROM contact WHERE host_id=$1', [DEMO_HOST_ID])).rows[0].count, 3);
   assert.equal((await db.query('SELECT count(*)::int AS count FROM booking WHERE host_id=$1', [DEMO_HOST_ID])).rows[0].count, 3);
   assert.equal((await db.query('SELECT count(*)::int AS count FROM booking WHERE host_id=$1 AND EXTRACT(HOUR FROM start_utc)=10', [DEMO_HOST_ID])).rows[0].count, 3, 'Fixture dates must stay at 10:00 UTC regardless of operator timezone');
@@ -105,16 +110,16 @@ try {
   await json(await context.request.patch(`${origin.origin}/api/profile`, { data: { name: 'Maya Updated', email: DEMO_EMAIL, timezone: 'UTC' } }));
   const removed = (await db.query('DELETE FROM contact WHERE id=$1 RETURNING *', ['template-calendly-contact-2'])).rows[0];
   assert.ok(removed, 'A seed contact exists to exercise preserving user deletion');
-  await Promise.all([seed({ databaseUrl, password: 'replacement-not-used' }), seed({ databaseUrl, password: 'replacement-not-used' })]);
-  assert.equal((await db.query('SELECT password FROM account WHERE user_id=$1', [DEMO_HOST_ID])).rows[0].password, before, 'Retry must not reset a password');
+  await Promise.all([seed({ databaseUrl }), seed({ databaseUrl })]);
+  const signed = await nativeLogin(anonymous.request, origin.origin, {email:DEMO_EMAIL,password});
+  assert.equal(signed.user.id, DEMO_HOST_ID, 'SQL reseeding must not reset native credentials');
   assert.equal((await db.query('SELECT id FROM contact WHERE id=$1', [removed.id])).rowCount, 0, 'Retry must not recreate a deleted contact');
   await exec('docker', ['restart', name], { timeout: 60000 });
   await ready();
   const me = await json(await context.request.get(`${origin.origin}/api/me`));
   assert.equal(me.name, 'Maya Updated', 'A real profile edit must survive both reseeding and container restart');
   assert.equal((await db.query('SELECT id FROM booking WHERE invitee_email=$1', [booking.email])).rowCount, 1, 'A real public booking must survive restart');
-  const login = await anonymous.request.post(`${origin.origin}/api/auth/sign-in/email`, { data: { email: DEMO_EMAIL, password }, headers: { origin: origin.origin } });
-  await json(login);
+  await nativeLogin(anonymous.request, origin.origin, {email:DEMO_EMAIL,password});
   assert.deepEqual(pageErrors, [], 'Seeded product routes must have no browser runtime errors');
   await exec(process.execPath, ['.neander/check-auth.mjs', origin.origin], { timeout: 60000 });
   // Restore verification mutations so a second verification can use the same fixture.
@@ -133,5 +138,6 @@ try {
   if (connected) await db.end();
   if (browser) await browser.close();
   await exec('docker', ['rm', '--force', name]).catch(() => {});
+  await authFixture?.close();
   await rm(directory, { recursive: true, force: true });
 }

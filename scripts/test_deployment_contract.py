@@ -18,26 +18,21 @@ class DeploymentExamplesTests(unittest.TestCase):
         self.assertEqual(metadata['ingress']['root_probe'], '/')
         self.assertEqual(metadata['probes'], [{'path': '/api/health', 'success_status_range': '2xx'}])
         requirements = {item['name']: item for item in metadata['environment']}
-        core = {'DATABASE_URL', 'BETTER_AUTH_URL', 'BETTER_AUTH_SECRET', 'DEMO_HOST_PASSWORD'}
-        optional = {'DAYMARK_RESEND_API_KEY', 'DAYMARK_EMAIL_FROM', 'DAYMARK_GOOGLE_CLIENT_ID', 'DAYMARK_GOOGLE_CLIENT_SECRET'}
-        self.assertEqual(set(requirements), core | optional)
-        self.assertTrue(all(requirements[name]['required'] is True for name in core))
-        for name in optional:
-            self.assertEqual(requirements[name], {'service': 'web', 'name': name, 'required': False, 'source': 'user', 'provider': None})
+        self.assertEqual(metadata['contract_version'], 2)
+        self.assertEqual(metadata['managed_services'], {'web': ['auth', 'storage', 'email', 'scheduling']})
+        self.assertEqual(set(requirements), {'DATABASE_URL', 'DAYMARK_APP_URL', 'DAYMARK_APP_SECRET', 'DAYMARK_REMINDER_FUNCTION_ARN'})
+        self.assertTrue(all(item['required'] for item in requirements.values()))
         self.assertEqual(requirements['DATABASE_URL']['provider'], 'Neon')
-        self.assertEqual(requirements['BETTER_AUTH_URL']['provider'], 'Neander')
-        self.assertEqual(requirements['BETTER_AUTH_URL']['binding'], 'public_origin')
-        self.assertEqual(requirements['BETTER_AUTH_SECRET']['source'], 'generated')
-        self.assertIsNone(requirements['BETTER_AUTH_SECRET']['provider'])
-        self.assertEqual(requirements['BETTER_AUTH_SECRET']['generator'], 'opaque-random')
-        self.assertEqual(requirements['DEMO_HOST_PASSWORD']['source'], 'generated')
-        self.assertIsNone(requirements['DEMO_HOST_PASSWORD']['provider'])
-        self.assertEqual(requirements['DEMO_HOST_PASSWORD']['generator'], 'opaque-random')
-        self.assertTrue(all(item['service'] == 'web' for item in requirements.values()))
+        self.assertEqual(requirements['DAYMARK_APP_URL']['binding'], 'public_origin')
+        self.assertEqual(requirements['DAYMARK_REMINDER_FUNCTION_ARN']['binding'], 'function_arn')
+        self.assertEqual(requirements['DAYMARK_REMINDER_FUNCTION_ARN']['resource'], 'booking-reminder')
+        self.assertEqual(metadata['functions']['booking-reminder']['managed_services'], ['email'])
+        self.assertEqual(metadata['functions']['booking-reminder']['environment'], {'DAYMARK_APP_URL': {'binding': 'public_origin'}})
+        self.assertTrue((ROOT/'lambda/booking-reminder.mjs').is_file())
 
-    def test_database_and_auth_recipes_declare_complete_requirements(self):
+    def test_retained_database_recipe_declares_complete_requirements(self):
         examples = list((ROOT / '.neander/blocks').glob('*/.neander/compose.yaml.example'))
-        self.assertEqual(len(examples), 2)
+        self.assertEqual([path.parent.parent.name for path in examples], ['drizzle'])
         for path in examples:
             with self.subTest(block=path.parent.parent.name):
                 recipe = yaml.safe_load(path.read_text())
@@ -62,26 +57,11 @@ class DeploymentExamplesTests(unittest.TestCase):
                         self.assertIn(item['source'], ('user', 'generated'))
                         if item['source'] == 'generated':
                             self.assertEqual(item['generator'], 'opaque-random')
-                if len(requirements) > 1:
-                    self.assertEqual(len(requirements), 5)
-                    self.assertEqual(metadata['ingress']['root_probe'], '/api/health')
-                    self.assertIn('GOOGLE_CLIENT_ID', names)
-                    self.assertIn('GOOGLE_CLIENT_SECRET', names)
                 self.assertEqual(recipe['secrets'], {'neander_environment': {'file': '/run/neander/secrets/neander_environment'}})
                 self.assertEqual(recipe['services']['web']['secrets'], ['neander_environment'])
                 self.assertNotIn('environment', recipe['services']['web'])
                 self.assertTrue((ROOT / recipe['services']['web']['build']['dockerfile']).is_file())
 
-    def test_better_auth_uses_cli_schema_then_drizzle_migration(self):
-        readme = (ROOT / '.neander/blocks/better-auth/README.md').read_text()
-        self.assertIn('pnpm exec auth generate', readme)
-        self.assertIn('--config .neander/auth-schema-config.ts', readme)
-        self.assertIn('--output server/auth-schema.ts', readme)
-        self.assertIn('pnpm exec drizzle-kit generate', readme)
-        self.assertIn('Do not use `auth migrate`', readme)
-        self.assertIn('node --env-file=.env.local .neander/migrate.mjs', readme)
-        checker = (ROOT / '.neander/blocks/better-auth/.neander/check-auth.mjs.example').read_text()
-        self.assertIn('runtime verification only', checker)
 
 
 if __name__ == '__main__':

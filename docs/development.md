@@ -1,38 +1,22 @@
-# Development
+# Development and verification
 
-Next.js routes and pages are in `app/`; shared UI and server/database modules stay in their existing directories. `project.json` records this published template's identity; it is
-not a deployment configuration or an acceptance/payment record.
+Daymark targets Neander and its native managed services. Keep the Compose v2
+contract, declared function, migrations and code together when features change.
+Never add provider-selection fallbacks or per-project cloud setup scripts.
 
-Use Node 24.22.3 and pnpm 11.18.0 from `mise.toml`.
-Run `pnpm install --frozen-lockfile` from the repository root. Python 3 and
-`python3 -m pip install PyYAML==6.0.3` are also needed for repository/deployment checks.
-Follow the existing [README](../README.md) database and environment instructions;
-do not substitute a live database for a development database.
+Use Node and pnpm from `mise.toml`, then `pnpm install --frozen-lockfile`.
+`pnpm verify` runs source checks, unit tests, repository policy and the production
+build. `pnpm test:production` exercises the built image with an explicitly
+isolated PostgreSQL database and the official Firebase Auth emulator.
+The suite supplies fictional credentials and cleans up its own app/emulator.
+See `docs/testing.md` and `docs/native-service-test-mapping.md` for coverage.
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Existing local development server |
-| `pnpm check` | TypeScript checks |
-| `pnpm test` | Existing app-specific unit and contract tests |
-| `pnpm test:policy` | Repository, workflow and runtime-pin contract |
-| `pnpm build` | Existing production build |
-| `pnpm verify` | All four source checks above, including build |
-| `pnpm test:production` | Existing built-image smoke suite; isolated database required |
+`.env.example` contains only loopback test-fixture names. Production and preview
+bindings are supplied by Neander; do not copy operator credentials into it.
+Generate application-schema changes using Drizzle. Preserve existing migration
+history and application data when changing authentication. The user/session
+metadata tables do not authorize a password sign-in without native verification.
 
-`.neander/compose.yaml` is the deployment recipe; `.neander/Dockerfile` builds
-the image. Read `docs/deployment-contract.md` where present and the existing
-`.neander/blocks/` guides before extending database/auth capabilities.
-`.neander/template.yaml` owns catalog metadata and initialization.
-Keep these contracts, migrations, fictional sample data and tests together when
-runtime needs change. Local credentials belong in ignored environment files.
-
-Use feature branches and PRs with the included PR template. The default branch
-requires passing repository/app/runtime and security checks plus maintainer
-review. CODEOWNERS identifies the reviewer; it grants no repository access.
-GitHub Actions runs untrusted code with read-only permissions and no saved checkout
-credentials. Do not put private publisher/cloud credentials in public workflows.
-
-This existing repository remains public under its current MIT license. New client
-projects created from the private starter stay private through delivery review;
-their publication is a separate owner decision. Commercial scope, prices and
-freelancer negotiations belong outside source repositories.
+Use feature branches and PRs. Preserve app/runtime/security checks, read-only
+public CI credentials and immutable tool/image pins. Keep raw captures, database
+URLs and runtime credentials out of Git.

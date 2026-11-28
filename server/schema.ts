@@ -337,7 +337,7 @@ export const bookingAttendee = pgTable(
 );
 
 export type BookingEmailKind = "confirmed" | "rescheduled" | "cancelled";
-export type BookingEmailStatus = "pending" | "accepted" | "failed" | "unconfigured" | "superseded";
+export type BookingEmailStatus = "pending" | "accepted" | "failed" | "unknown" | "unconfigured" | "superseded";
 
 export const bookingEmail = pgTable(
   "booking_email",
@@ -356,6 +356,16 @@ export const bookingEmail = pgTable(
   },
   (table) => [uniqueIndex("booking_email_revision_idx").on(table.bookingId, table.revision)],
 );
+
+export type BookingReminderStatus = "scheduled" | "cancelled" | "too-soon" | "unconfigured" | "failed";
+export const bookingReminder = pgTable("booking_reminder", {
+  bookingId: text("booking_id").primaryKey().references(() => booking.id, { onDelete: "cascade" }),
+  scheduleName: text("schedule_name").notNull(),
+  revision: integer("revision").notNull(),
+  status: text("status").$type<BookingReminderStatus>().notNull(),
+  scheduledFor: timestamp("scheduled_for"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 export const googleCalendarConnection = pgTable("google_calendar_connection", {
   hostId: text("host_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
