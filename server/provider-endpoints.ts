@@ -1,6 +1,6 @@
 export function providerEndpoint(canonical: string, testPath: string): string {
-  const configured = process.env.DAYMARK_TEST_PROVIDER_ORIGIN;
-  const appOrigin = process.env.BETTER_AUTH_URL;
+  const configured = (testPath === "/ses" ? process.env.DAYMARK_TEST_SES_ORIGIN : undefined) || process.env.DAYMARK_TEST_PROVIDER_ORIGIN;
+  const appOrigin = process.env.DAYMARK_APP_URL;
   if (!configured || !appOrigin) return canonical;
 
   // The built-image suite routes fictional credentials to a local test server.

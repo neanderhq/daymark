@@ -1,5 +1,6 @@
 import { googleBusyTimes, recordCalendarFailure } from "./google-calendar";
 import { deliverBookingEmail, queueBookingEmail } from "./booking-email";
+import { reconcileBookingReminder } from "./booking-reminders";
 import { randomBytes } from "node:crypto";
 
 import { and, eq, gt, lt } from "drizzle-orm";
@@ -427,6 +428,7 @@ export async function createBooking(input: {
     return { id, confirmationToken, deliveryId };
     });
     await deliverBookingEmail(result.deliveryId);
+    await reconcileBookingReminder(result.id);
     return { id: result.id, confirmationToken: result.confirmationToken };
   } catch (error) {
     if (isUniqueViolation(error, "booking_bookingLinkId_unique")) throw new BookingLinkAlreadyUsedError();
@@ -506,6 +508,7 @@ async function cancelBooking(selector: BookingActionSelector, actor: "host" | "i
     return { cancelled, deliveryId };
   });
   await deliverBookingEmail(result.deliveryId);
+  await reconcileBookingReminder(result.cancelled.id);
   return result.cancelled;
 }
 
@@ -585,6 +588,7 @@ async function rescheduleBooking(selector: BookingActionSelector, startUtc: Date
     throw error;
   });
   await deliverBookingEmail(result.deliveryId);
+  await reconcileBookingReminder(result.updated.id);
   return result.updated;
 }
 

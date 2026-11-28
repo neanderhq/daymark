@@ -1,176 +1,57 @@
 # Daymark
 
-A scheduling app with public booking pages and a private host dashboard.
+A Neander scheduling clone with private host dashboards and public booking pages.
+Product inspiration: Calendly, with Daymark branding.
 
-**Product inspiration:** Calendly-inspired scheduling and booking, with its own Daymark branding.
+## Use in Neander
 
-**Neander library:** Daymark · **Category:** Scheduling
+Choose Daymark from Starter Templates to create a new app. Neander reads
+`.neander/compose.yaml` and automatically provisions the app's database,
+Identity Platform sign-in, private Google Cloud Storage, SES email and Scheduler
+resources. Its declared reminder function is deployed for preview and publishing.
+The app builder does not create cloud resources or supply provider credentials.
 
-![Daymark with fictional sample data](.neander/thumbnail.png)
+Create a host account, edit your booking page and availability, then share your
+public booking link. Invitees receive booking confirmation/change emails and a
+reminder five minutes before the meeting, when booked sufficiently ahead.
+Booking receipts retain cancellation, rescheduling and calendar-file downloads.
+Hosts can upload a private profile photo in Settings.
 
-## What you can build
+Continue editing in the normal Neander project and Publish again to deploy
+changes. Each project owns its bindings; preview and published service data are
+separate. Updating the clone does not overwrite an existing user's app.
 
-- Publish distinct one-on-one booking pages with host-wide availability and intake questions.
-- Set weekday availability, date overrides, buffers and booking limits.
-- Manage bookings and contacts, and create one-off booking links.
-- Collect votes in meeting polls and choose a time.
-- Offer a calendar file on booking receipts and optionally send invitee lifecycle email.
-- Optionally check busy time on a host’s primary Google Calendar.
+Neander is the sole supported deployment target. There is no standalone Better
+Auth/Resend configuration or alternative cloud-provider setup.
 
-## How this fits into Neander
+## Product features
 
-This is the open-source app behind Neander’s **Daymark** starter. You can
-run and modify it on its own without a Neander account, or use it as a starting
-point in Neander.
+- Reusable booking pages, availability, buffers and booking limits.
+- Public bookings, private receipts, cancellation and rescheduling.
+- Meeting polls, one-off links and host-scoped contacts.
+- Native managed sign-in and private profile-photo storage.
+- Booking lifecycle email and scheduled meeting reminders.
+- Calendar-file downloads. Google Calendar OAuth is separate from the four
+  managed services and is not automatically provisioned or advertised as ready.
 
-1. Choose **Use Template** in [Neander](https://neander.ai).
-2. Neander creates a normal project from a registered version of this repository,
-   with fresh Git history, and publishes a working app with sample data.
-3. Open the live app and continue in the project. Prompt Neander to make changes
-   in the codebase, just as you would in any other project.
-4. Use **Publish** again when you want your changes reflected in the live app.
+## Source and verification
 
-Your project starts from one version. Later changes to this repository or the
-template library do not overwrite your project. Linked IDE projects use their
-checkout; web projects use Neander’s managed project source.
+Next.js/React/TypeScript, PostgreSQL/Drizzle and supported native provider SDKs.
+Use Node and pnpm pinned in `mise.toml`. Read [development](docs/development.md),
+[testing](docs/testing.md) and the [auth/provider coverage mapping](docs/native-service-test-mapping.md).
+Local emulators and disposable databases are verification fixtures, not another
+supported hosting setup. Never run seeds or test suites against a customer DB.
 
-## Run locally
+The clone retains versioned migrations and fictional sample data. SQL seed does
+not create a login credential; a real app host signs up through managed auth.
+A new host receives its own booking page and weekday defaults.
 
-Stack: Next.js, React, TypeScript, PostgreSQL, Drizzle and Better Auth.
+`.neander/template.yaml` owns catalog metadata, sample-data initialization and
+verification commands. Neander's trusted publisher verifies a pinned Git commit
+and registers the tested images. Source changes are not released until normal
+review and publication complete. Existing user apps need normal republishing.
 
-Use **Node 24.22.3** and **pnpm 11.18.0**. Versions are listed in
-`mise.toml`; if you use mise, run `mise install`. Install Docker for the local
-PostgreSQL service.
+## License and security
 
-### 1. Install the app
-
-```sh
-git clone https://github.com/neanderhq/daymark.git
-cd daymark
-pnpm install --frozen-lockfile
-cp .env.example .env.local
-```
-
-### 2. Start local PostgreSQL
-
-```sh
-PGPORT=55432 docker compose -p daymark-dev -f compose.dev.yaml up -d --wait
-```
-
-The example database URL uses port `55432`. The Compose project name keeps
-this app’s development data separate from other checkouts.
-
-### 3. Configure the app
-
-Edit `.env.local`. The database URL is already set for the local service above.
-
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection used by this local app. |
-| `BETTER_AUTH_URL` | The browser origin, initially `http://127.0.0.1:3000`. |
-| `BETTER_AUTH_SECRET` | A random authentication secret. |
-| `DEMO_HOST_PASSWORD` | A password of at least 12 characters for the fictional demo account. |
-
-Generate a value for each blank secret and paste it into the environment file:
-
-```sh
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
-
-These database credentials are for the loopback development service. Neander
-supplies a managed database connection and generated runtime secrets when it
-publishes a project. Keep your local environment file out of Git.
-
-### 4. Initialize and start
-
-```sh
-node --env-file=.env.local .neander/migrate.mjs
-node --env-file=.env.local .neander/seed.mjs
-pnpm dev
-```
-
-Open **http://127.0.0.1:3000**.
-
-Sign in as **`maya.chen@example.invalid`** with your `DEMO_HOST_PASSWORD`.
-
-### Try the booking flow
-
-Sign in, review **Availability**, then open `/maya-chen/discovery-call` in a separate browser session. Book a free slot and check the host dashboard for the new booking.
-
-## Optional booking integrations
-
-Configure integrations in the app's server environment. Leave the corresponding pair unset to run with local availability or web receipts.
-
-| Variables | Operator setup |
-| --- | --- |
-| `DAYMARK_RESEND_API_KEY`, `DAYMARK_EMAIL_FROM` | A Resend sending key and verified sender address. The configured instance sends the booking's primary invitee a confirmation or change message. Each booking still has a private web receipt. |
-| `DAYMARK_GOOGLE_CLIENT_ID`, `DAYMARK_GOOGLE_CLIENT_SECRET` | A Google OAuth web client with Calendar API enabled. Register the exact `BETTER_AUTH_URL` origin plus `/api/settings/google-calendar/callback` as an authorized redirect URI. |
-
-Hosts connect their own primary calendar in Settings. Daymark requests only Calendar free/busy scope, stores credentials encrypted with the application's server secret, and rechecks before committing a booking or reschedule. A connected calendar that cannot be checked temporarily blocks new confirmations. Hosts can reconnect to restore calendar checks or disconnect to return to manual scheduling.
-
-Email delivery attempts follow the booking commit. A host can retry eligible pending messages in Settings within the provider's idempotency window. The receipt reports provider acceptance separately from booking status. Calendar files are importable snapshots and future changes are reflected on the current web receipt.
-
-## Sample data
-
-A fictional Maya Chen host account, a Discovery call event, weekday availability, contacts, bookings and a meeting poll.
-
-All sample people, organizations and responses are fictional. Seed retries preserve
-existing changes and credentials. Normal app restarts do not reset your data.
-
-## Development and checks
-
-```sh
-pnpm check
-pnpm test
-pnpm build
-```
-
-Public CI runs these app checks and a production build without Neander’s private
-publishing tools or cloud credentials. Full template image/database verification
-and library publication are run manually by Neander maintainers in private CI.
-Merging a contribution does not automatically update the template library.
-
-## Repository layout
-
-| Path | Purpose |
-| --- | --- |
-| `app/` | Pages, dashboard components and API routes. |
-| `server/` | Scheduling, availability, booking and authentication logic. |
-| `drizzle/` | Versioned PostgreSQL migrations. |
-| `.neander/template.yaml` | Library metadata and install/check/test/seed commands. |
-| `.neander/compose.yaml` | Normal Neander Publish recipe and runtime requirements. |
-| `.neander/seed.mjs` | Fictional demo initializer. |
-| `scripts/verify-template.mjs` | Maintainer verification of the built app image. |
-
-## Maintaining the Neander template
-
-The `.neander/template.yaml` manifest defines the library entry and verification
-commands. `.neander/compose.yaml` defines the app’s normal Publish recipe,
-including PostgreSQL, migrations and generated secrets. Keep these files in sync
-when changing database, authentication or runtime requirements.
-
-Neander’s private release workflow checks out an exact GitHub commit, verifies
-the built app with a disposable database, and registers its image and metadata.
-The application source stays in this repository.
-
-## Contributing
-
-Fork the repository, make a focused change, and run the checks above before
-opening a pull request. Include the behavior you changed and how you verified it.
-A maintainer decides when to publish a new version to Neander’s library.
-
-## License
-
-[MIT](LICENSE). Third-party components retain their respective licenses and
-existing attribution notices.
-
-## Security
-
-See [SECURITY.md](SECURITY.md) for private vulnerability reporting and the automated security checks.
-
-## Contributing and checks
-
-Use the pinned tools in `mise.toml`. Run `pnpm verify` for source validation;
-see [development setup](docs/development.md) and [verification coverage](docs/testing.md)
-for production-image tests and CI. Work through a feature branch and PR; preserve
-the existing application, deployment recipe, fictional seeds and MIT license.
+[MIT](LICENSE). Existing third-party attribution remains applicable.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and security checks.

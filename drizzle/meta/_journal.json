@@ -99,6 +99,13 @@
       "when": 1795602708884,
       "tag": "0013_google_calendar_conflicts",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795843058187,
+      "tag": "0014_ordinary_kronos",
+      "breakpoints": true
     }
   ]
 }

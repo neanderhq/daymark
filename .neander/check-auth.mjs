@@ -1,39 +1,43 @@
-// Post-migration runtime verification only. This does not generate or apply schemas.
-// Only run against an isolated development database; never production.
+// Native session and profile regression against the built image and official emulator.
 import assert from 'node:assert/strict';
-import {createHmac,randomUUID} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
+import {request} from '@playwright/test';
 import {Client} from 'pg';
+import {nativeLogin} from '../scripts/test-native-auth.mjs';
+
+const origin=new URL(process.argv[2]).origin;
+assert.equal(new URL(origin).protocol,'http:');
+assert.ok(['127.0.0.1','localhost'].includes(new URL(origin).hostname));
+assert.equal(process.env.DATABASE_URL,process.env.NEANDER_TEMPLATE_TEST_DATABASE_URL);
 const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
-const origin=process.argv[2];
-assert.ok(origin, 'Pass the isolated test app origin');
-const id=randomUUID(), token=randomUUID();
-const signed=encodeURIComponent(token+'.'+createHmac('sha256',process.env.BETTER_AUTH_SECRET).update(token).digest('base64'));
-const cookie='better-auth.session_token='+signed;
-const appOrigin=new URL(origin).origin;
-const profile=async(body)=>fetch(appOrigin+'/api/auth/update-user',{method:'POST',headers:{cookie,origin:appOrigin,'content-type':'application/json'},body:JSON.stringify(body)});
-const storedProfile=async()=> (await db.query('SELECT name,timezone FROM "user" WHERE id=$1',[id])).rows[0];
+const context=await request.newContext({baseURL:origin,extraHTTPHeaders:{origin}});
+let id;
 try{
- await db.query('INSERT INTO "user" (id,name,email,email_verified) VALUES ($1,$2,$3,true)',[id,'Session test',id+'@example.invalid']);
- await db.query('INSERT INTO "session" (id,token,user_id,expires_at,created_at,updated_at) VALUES ($1,$2,$3,NOW()+INTERVAL \'1 day\',NOW(),NOW())',[randomUUID(),token,id]);
+ const signed=await nativeLogin(context,origin,{name:'Session test',email:randomUUID()+'@example.invalid',password:'Fictional-'+randomUUID(),timezone:'UTC'},true);
+ id=signed.user.id;
+ const state=await context.storageState();
+ const native=state.cookies.find(value=>value.name.startsWith('daymark.'));
+ assert.ok(native.httpOnly);assert.equal(native.sameSite,'Lax');
+ const cookie=state.cookies.map(value=>value.name+'='+value.value).join('; ');
  assert.equal((await fetch(origin+'/api/me')).status,401);
  assert.equal((await fetch(origin+'/api/me',{headers:{cookie:cookie+'tampered'}})).status,401);
- const me=await fetch(origin+'/api/me',{headers:{cookie}});assert.equal(me.status,200,await me.text());
- const invalidName=await profile({name:'   '});assert.equal(invalidName.status,400,await invalidName.text());
- assert.deepEqual(await storedProfile(),{name:'Session test',timezone:'UTC'});
- const tooLongName=await profile({name:'N'.repeat(81)});assert.equal(tooLongName.status,400,await tooLongName.text());
- assert.deepEqual(await storedProfile(),{name:'Session test',timezone:'UTC'});
- const invalidTimezone=await profile({name:'Should Not Save',timezone:'Not/AZone'});assert.equal(invalidTimezone.status,400,await invalidTimezone.text());
- assert.deepEqual(await storedProfile(),{name:'Session test',timezone:'UTC'});
- const offsetTimezone=await profile({timezone:'+01:00'});assert.equal(offsetTimezone.status,400,await offsetTimezone.text());
- assert.deepEqual(await storedProfile(),{name:'Session test',timezone:'UTC'});
- const validName=await profile({name:'  Updated Test  '});assert.equal(validName.status,200,await validName.text());
- assert.deepEqual(await storedProfile(),{name:'Updated Test',timezone:'UTC'});
- const utcTimezone=await profile({timezone:'UTC'});assert.equal(utcTimezone.status,200,await utcTimezone.text());
- assert.deepEqual(await storedProfile(),{name:'Updated Test',timezone:'UTC'});
- const validTimezone=await profile({timezone:'America/La_Paz'});assert.equal(validTimezone.status,200,await validTimezone.text());
- assert.deepEqual(await storedProfile(),{name:'Updated Test',timezone:'America/La_Paz'});
- const bad=await fetch(origin+'/api/auth/sign-out',{method:'POST',headers:{cookie,origin:'https://attacker.invalid','content-type':'application/json'},body:'{}'});assert.equal(bad.status,403);
- const logout=await fetch(origin+'/api/auth/sign-out',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:'{}'});assert.equal(logout.status,200,await logout.text());
- assert.equal((await fetch(origin+'/api/me',{headers:{cookie}})).status,401);
- console.log('Better Auth: anonymous, tampered cookie, database session, name/timezone update validation, CSRF, logout passed');
-}finally{await db.query('DELETE FROM "user" WHERE id=$1',[id]);await db.end();}
+ assert.equal((await context.get('/api/me')).status(),200);
+ assert.equal((await context.post('/api/auth/sign-in/email',{data:{email:'fixture@example.invalid',password:'unused'}})).status(),404,'Old database-password route must stay unavailable');
+ assert.equal((await context.post('/api/auth/managed',{headers:{origin:'https://attacker.invalid'},data:{}})).status(),403);
+ const stored=async()=> (await db.query('SELECT name,email,timezone FROM "user" WHERE id=$1',[id])).rows[0];
+ const profile=async(values)=>context.patch('/api/profile',{data:{...await stored(),...values}});
+ for(const invalid of [{name:'  '},{name:'N'.repeat(81)},{timezone:'Not/AZone'},{timezone:'+01:00'}]){
+  const before=await stored();assert.equal((await profile(invalid)).status(),400);assert.deepEqual(await stored(),before);
+ }
+ assert.equal((await profile({email:'different@example.invalid'})).status(),400,'Sign-in owns the email identity');
+ assert.equal((await profile({name:'  Updated Test  ',timezone:'America/La_Paz'})).status(),200);
+ assert.equal((await stored()).name,'Updated Test');assert.equal((await stored()).timezone,'America/La_Paz');
+ assert.equal((await context.patch('/api/profile',{headers:{origin:'https://attacker.invalid'},data:{name:'Unwanted'}})).status(),403);
+ assert.equal((await fetch(origin+'/api/profile/photo',{method:'POST',headers:{origin},body:'not-a-photo'})).status,401);
+ assert.equal((await context.post('/api/profile/photo',{data:Buffer.from('<svg></svg>')})).status(),400);
+ assert.equal((await context.post('/api/profile/photo',{data:Buffer.alloc(2*1024*1024+1)})).status(),413);
+ assert.equal((await context.delete('/api/auth/managed',{headers:{origin:'https://attacker.invalid'}})).status(),403);
+ assert.equal((await context.delete('/api/auth/managed')).status(),200);
+ assert.equal((await fetch(origin+'/api/me',{headers:{cookie}})).status,401,'Logged-out session cannot be replayed');
+ console.log('Native auth: browser-compatible session, anonymous/tampered denial, disabled legacy route, validation, CSRF, upload guards and logout replay passed');
+}finally{if(id)await db.query('DELETE FROM "user" WHERE id=$1',[id]);await db.end();await context.dispose();}

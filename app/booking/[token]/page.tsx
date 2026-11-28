@@ -4,7 +4,7 @@ import { BookingConfirmationActions } from "../../components/booking-confirmatio
 import { Card, PageHeader } from "../../components/ui";
 import { bookingEmailStatus } from "../../../server/booking-email";
 import { getDb } from "../../../server/db";
-import { booking, bookingAnswer, bookingLink, eventType, poll, user } from "../../../server/schema";
+import { booking, bookingAnswer, bookingLink, bookingReminder, eventType, poll, user } from "../../../server/schema";
 import { getAvailabilityRules } from "../../../server/slots";
 import { formatInstant } from "../../../server/timezone";
 
@@ -15,8 +15,17 @@ const deliveryLabels = {
   pending: "Email is queued. Keep this page for your booking details.",
   accepted: "The email service accepted the latest booking message.",
   failed: "The latest booking email could not be sent. Keep this page for your details.",
+  unknown: "Email acceptance could not be confirmed. Keep this page for your booking details.",
   unconfigured: "Email is not configured. Save this page for your booking details.",
   superseded: "Save this page for the latest booking details.",
+};
+
+const reminderLabels = {
+  scheduled: "A reminder is scheduled five minutes before your meeting.",
+  cancelled: "The meeting reminder has been cancelled.",
+  "too-soon": "This meeting is too close to send a five-minute reminder. Keep this receipt.",
+  unconfigured: "Meeting reminders are still being prepared.",
+  failed: "Reminder scheduling could not be confirmed. Keep this receipt.",
 };
 
 export default async function BookingConfirmationPage({ params }: { params: Promise<{ token: string }> }) {
@@ -78,6 +87,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
     .where(eq(bookingAnswer.bookingId, confirmedBooking.id))
     .orderBy(asc(bookingAnswer.position));
   const [rules, delivery] = await Promise.all([getAvailabilityRules(confirmedBooking.hostId), bookingEmailStatus(confirmedBooking.id)]);
+  const [reminder] = await getDb().select().from(bookingReminder).where(eq(bookingReminder.bookingId, confirmedBooking.id)).limit(1);
   const hasStarted = confirmedBooking.startUtc.getTime() <= Date.now();
   const isOneOffBooking = confirmedBooking.bookingLinkKind === "one_off";
   const statusLabel = confirmedBooking.status === "cancelled" ? "Cancelled" : hasStarted ? "Started" : "Confirmed";
@@ -123,6 +133,7 @@ export default async function BookingConfirmationPage({ params }: { params: Prom
           )}
 
           <p className="notice-banner">{delivery ? deliveryLabels[delivery] : "Save this page link to keep your booking details."}</p>
+          {reminder && <p className="notice-banner">{reminderLabels[reminder.status]}</p>}
           {confirmedBooking.status === "active" && (
             <p><a className="text-link" href={`/api/public/bookings/${token}/calendar`} download>Download calendar file</a></p>
           )}

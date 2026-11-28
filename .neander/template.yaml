@@ -3,8 +3,9 @@ id: calendly
 title: Daymark
 description: >-
   Share reusable booking pages, one-off links and meeting polls with your
-  availability. Invitees can download a calendar file. Optionally send booking
-  emails through Resend and check for conflicts on your primary Google Calendar.
+  availability. Neander provisions managed sign-in, private profile photos,
+  booking emails and scheduled meeting reminders. Invitees can download a
+  calendar file and manage their booking from its private receipt.
 category: Scheduling
 best_for: Consultants and teams coordinating meetings
 features:
@@ -14,18 +15,18 @@ features:
   - One-off booking links
   - Contacts
   - Calendar file downloads
-  - Optional booking emails via Resend
-  - Optional read-only Google Calendar conflict checks
+  - Managed sign-in and private profile photos
+  - Booking confirmation and change emails
+  - Meeting reminders five minutes before the start
 included:
   - Daymark scheduling application
   - PostgreSQL migrations
   - Fictional sample data
-  - Resend and Google Calendar setup guide
+  - Managed-service Compose declaration and reminder function
 thumbnail: .neander/thumbnail.png
 screenshots:
   - .neander/gallery/reusable-booking-pages.png
   - .neander/gallery/booking-email-and-calendar-download.png
-  - .neander/gallery/google-calendar-conflict-settings.png
   - .neander/gallery/calendar-download-on-phone.png
 commands:
   install: [pnpm, install, --frozen-lockfile]

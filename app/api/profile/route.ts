@@ -30,6 +30,7 @@ export async function PATCH(request: Request) {
   }
   const normalizedEmail = normalizeEmail(email);
   if (normalizedEmail === null) return Response.json({ error: invalidEmailMessage }, { status: 400 });
+  if (normalizedEmail !== session.user.email.toLowerCase()) return Response.json({ error: "Your email address is managed by sign-in." }, { status: 400 });
   if (!isIanaTimezone(timezone)) return Response.json({ error: invalidTimezoneMessage }, { status: 400 });
 
   try {

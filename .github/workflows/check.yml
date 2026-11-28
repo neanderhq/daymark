@@ -65,9 +65,8 @@ jobs:
       NEANDER_TEMPLATE_TEST_DATABASE_URL: "postgresql://template:template_ci_only@127.0.0.1:5432/template_check"
       NEANDER_TEMPLATE_IMAGE: "daymark:security"
       NEANDER_TEMPLATE_TEST_ORIGIN: "http://127.0.0.1:8080"
-      BETTER_AUTH_URL: "http://127.0.0.1:8080"
-      BETTER_AUTH_SECRET: "template-ci-only-daymark-BETTER_AUTH_SECRET-32-characters"
-      DEMO_HOST_PASSWORD: "template-ci-only-daymark-DEMO_HOST_PASSWORD-32-characters"
+      DAYMARK_APP_URL: "http://127.0.0.1:8080"
+      DAYMARK_APP_SECRET: "template-ci-only-daymark-DAYMARK_APP_SECRET-32-characters"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

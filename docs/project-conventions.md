@@ -3,15 +3,15 @@
 ## Stack and folders
 
 - Next.js App Router, React, and TypeScript provide pages, UI, and server routes.
-- PostgreSQL is the application database; Drizzle ORM maps its tables and Better Auth handles email/password accounts and sessions.
+- PostgreSQL is the application database and Drizzle maps its tables. Neander-managed Identity Platform/Firebase owns authentication; native SDKs verify identities and issue server session cookies.
 - `app/` contains pages, route handlers, shared UI, and forms. `server/` contains database, authentication, session, and validation code. `drizzle/` contains committed SQL migrations and Drizzle history. `.neander/` contains the deployment recipe and explicit migration runner.
 
 ## Tables and migrations
 
-- Better Auth owns the `user`, `session`, `account`, and `verification` tables. Generate its Drizzle schema with the pinned CLI; never hand-write those tables.
-- Better Auth additional fields can hold application-owned user attributes. Keep public identifiers such as `user.username` nullable and set `input: false`; authentication endpoints never write them. The application writes them through Drizzle after validation.
-- Re-export the generated schema from `server/schema.ts`, then run `pnpm db:generate`. Review and commit every generated SQL migration and its `drizzle/meta/` history.
-- Application tables live in `server/schema.ts`, separate from the generated Better Auth tables. Scheduling uses one `event_type` per user, ordered `booking_question` rows, recurring `availability_range` rows, per-date `availability_override` exceptions, per-date `blocked_time` ranges, and one `availability_rule` row per host. Availability weekdays use `0` for Sunday through `6` for Saturday; start and end values are minutes after local midnight and do not represent UTC instants, and the same is true of the minute values on `availability_override` and `blocked_time`, whose `date` columns are host-local calendar dates (`YYYY-MM-DD`) rather than UTC instants. An `availability_override` row with kind `unavailable` closes the whole date, otherwise each `available` row is one range that replaces the weekly hours for that date only. A `blocked_time` is a blocked range on one host-local date with an optional note. An `availability_rule` holds buffers, minimum notice, a booking horizon, start-time spacing (null means the event duration), and optional daily, Monday–Sunday weekly, and monthly active-booking caps.
+- Keep existing migration history and the generated legacy auth tables for data compatibility. The app uses `user` for profiles keyed by the verified native UID and `session` for one-way cookie hashes, expiry, logout and Calendar OAuth state binding. It does not authenticate database passwords or adopt identities by matching email. Do not seed native identities or credentials into SQL.
+- Application schema changes go through `pnpm db:generate`; review and commit generated SQL and `drizzle/meta/` history. Do not drop old tables merely because their provider implementation changed.
+- Scheduling uses host-owned `event_type`, `booking_question`, `availability_range`, `availability_override`, `blocked_time` and `availability_rule` rows. Weekdays run Sunday=0 through Saturday=6. Ranges use minutes after host-local midnight; override/blocked dates are host-local `YYYY-MM-DD` dates. An unavailable override closes the date; available overrides replace weekly hours on that date. Preserve the existing slot calculation and booking constraints.
+- `booking_reminder` tracks the stable native Scheduler name, revision, scheduled time and reconciliation status for each booking. `booking_email` tracks immutable message snapshots and delivery state. Never automatically resend an ambiguous SES outcome; the provider has no send idempotency key.
 - Polls use a `poll` row per host, ordered-by-time `poll_option` rows containing UTC instants, one `poll_vote` per poll and lowercase-normalized voter email, and `poll_vote_option` rows linking each vote to its selected options. The database enforces one final vote per poll and normalized email. Poll option times are stored as UTC instants; convert them to an IANA time zone for display and entry. Keep vote details available on public pages only when the host enables `showVotes`. A booking made from a poll links back through `booking.poll_id`; preserve the poll and its votes when a time is booked. `booking_attendee` stores normalized attendee records attached to bookings; poll bookings include voters plus any host-added attendees, deduplicated by email.
 - `booking_link` rows belong to a host and have a unique, unguessable 24-byte base64url token, kind `event_type` or `one_off`, and status `active`, `used`, or `deleted`. Event-type links reference that host's event type; one-off links store the meeting name, optional details, duration, and 1–20 unique future UTC proposed starts. `booking.booking_link_id` references the resulting booking link and is unique, so a link can produce at most one booking. Soft-delete links to preserve history; cancelling a booking does not reactivate a used link.
 - Keep cancellation metadata and `reschedule_history` on the original booking row; history stores previous UTC times and does not create replacement bookings. Contacts are unique per host and lowercase-normalized email; backfill them from retained bookings. Derive booking count and last booking date from booking rows, and never delete bookings when deleting a contact.
@@ -20,7 +20,7 @@
 
 ## Login and data ownership
 
-- Read the current session on the server for each protected page or private request. Redirect signed-out visitors from `/dashboard` to `/login`.
+- Read the native tenant session and unexpired hashed application session on the server for each protected page or private request. Redirect signed-out visitors from `/dashboard` to `/login`. Email is owned by Identity Platform; profile settings may change the app-owned name and timezone.
 - Scope every private read and write to the authenticated session user's ID. Never accept a user ID from the browser as authority.
 - Scope host booking actions and contact create/read/update/delete to the current session user. Authorize invitee actions only with the booking's unguessable confirmation token.
 - Require a session for host link management at `/dashboard/links` and its APIs, and scope every operation to the session user's host ID. `/link/[token]` is public and authorizes link access with its unguessable token.
@@ -41,7 +41,7 @@
 - Enforce per-host limits on the number of date-specific dates and blocked ranges.
 - `server/slots.ts` remains the single place that computes available times; date overrides, blocked ranges, buffers, minimum notice, booking horizon, start spacing, and meeting caps all live there, and no second slot calculation may be added. Booking and reschedule transactions recheck eligible event-type slots through this module after taking the host's shared event-row lock.
 - Return a clear field or form error for invalid input, duplicate email, and incorrect login details. Never show database internals or secret values to visitors.
-- Normalize email addresses to lowercase before saving. Keep local credentials in ignored `.env.local`; `.env.example` contains placeholders only.
+- Normalize email addresses to lowercase before saving. Neander supplies managed bindings at runtime. Keep isolated verification fixtures in ignored files; `.env.example` contains placeholders only.
 
 ## UI and project rules
 

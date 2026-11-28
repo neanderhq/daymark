@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { BookingEmailSettings } from "../components/forms/booking-email-settings";
 import { GoogleCalendarSettings } from "../components/forms/google-calendar-settings";
 import { ProfileForm } from "../components/forms/profile-form";
+import { ProfilePhotoForm } from "../components/forms/profile-photo-form";
 import { Card, PageHeader } from "../components/ui";
 import { getAuth } from "../../server/auth";
 import { bookingEmailConfigured, pendingBookingEmails } from "../../server/booking-email";
@@ -18,7 +19,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
   const [profile] = await getDb()
-    .select({ name: user.name, email: user.email, timezone: user.timezone })
+    .select({ name: user.name, email: user.email, timezone: user.timezone, image: user.image })
     .from(user)
     .where(eq(user.id, session.user.id))
     .limit(1);
@@ -37,6 +38,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <div className="settings-content">
         <PageHeader eyebrow="Your account" title="Profile settings" description="Keep your name, email, and time zone up to date." />
         <Card className="settings-card"><ProfileForm profile={profile} /></Card>
+        <Card className="settings-card"><ProfilePhotoForm image={profile.image} /></Card>
         <Card className="settings-card"><BookingEmailSettings configured={emailConfigured} pending={pending} /></Card>
         <Card className="settings-card"><GoogleCalendarSettings {...calendar} result={result} /></Card>
       </div>
